@@ -615,6 +615,36 @@ p {
   color: var(--accent);
 }
 
+.toastNotice {
+  position: fixed;
+  inset-block-start: 92px;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  width: min(520px, calc(100vw - 32px));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--line));
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  padding: 12px 14px;
+}
+
+.toastNotice button {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: var(--pill-bg);
+  color: var(--muted);
+}
+
 .primaryButton,
 .secondaryButton,
 .iconButton,
@@ -639,6 +669,18 @@ p {
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--line);
+  padding: 0 14px;
+}
+
+.dangerButton {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--danger) 36%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  color: var(--danger);
   padding: 0 14px;
 }
 
@@ -1435,6 +1477,14 @@ label textarea,
   width: min(1040px, 100%);
 }
 
+.compactModal {
+  width: min(720px, 100%);
+}
+
+.settingsModal {
+  width: min(920px, 100%);
+}
+
 .modalHeader {
   display: flex;
   align-items: flex-start;
@@ -1446,6 +1496,66 @@ label textarea,
 .modalHeader p {
   color: var(--muted);
   margin-top: 5px;
+}
+
+.profileHero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--pill-bg);
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+.profileAvatar {
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  color: var(--accent);
+}
+
+.profileHero h3 {
+  margin-bottom: 4px;
+}
+
+.profileStats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.profileStats div {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 12px;
+}
+
+.profileStats strong {
+  display: block;
+  color: var(--accent);
+  font-size: 1.25rem;
+  overflow-wrap: anywhere;
+}
+
+.profileStats span {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.settingsSection {
+  background: var(--surface);
+}
+
+.settingsActions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .addModes {
@@ -1635,6 +1745,11 @@ textarea {
   padding: 0 12px;
   text-align: start;
   font-weight: 700;
+}
+
+.staticHeader {
+  justify-content: flex-start;
+  pointer-events: none;
 }
 
 .formSectionHeader[aria-expanded="true"] svg {
@@ -1903,6 +2018,7 @@ textarea {
   .summaryGrid,
   .placeholderRow,
   .importStats,
+  .profileStats,
   .formGrid,
   .detailsGrid,
   .dateTimeField,

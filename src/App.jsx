@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   BookOpen,
@@ -41,6 +41,18 @@ const digitalTypes = ['pdf', 'epub', 'external'];
 const BOOKS_STORAGE_KEY = 'maktabati.books';
 const CATEGORIES_STORAGE_KEY = 'maktabati.categories';
 const TAGS_STORAGE_KEY = 'maktabati.tags';
+const USER_SETTINGS_STORAGE_KEY = 'maktabati.userSettings.v1';
+const USER_SESSION_STORAGE_KEY = 'maktabati.localSession.v1';
+
+const defaultUserSettings = {
+  displayName: 'مستخدم مكتبتي',
+  libraryDescription: 'مكتبة شخصية',
+  language: 'ar',
+  themePreference: 'light',
+  defaultView: 'summary',
+  defaultCategoryId: '',
+  defaultBookType: 'paper'
+};
 
 function readStoredJson(key, fallback) {
   if (typeof localStorage === 'undefined') return fallback;
@@ -50,6 +62,13 @@ function readStoredJson(key, fallback) {
   } catch {
     return fallback;
   }
+}
+
+function resolveThemePreference(preference) {
+  if (preference === 'system' && typeof window !== 'undefined') {
+    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  return preference === 'dark' ? 'dark' : 'light';
 }
 const defaultStatus = 'not_started';
 const defaultType = 'paper';
@@ -157,9 +176,13 @@ function formatMinutes(minutes) {
 }
 
 function formatDateTime(value, language = 'ar') {
-  if (!value) return '-';
+  if (!value) return language === 'ar' ? 'غير محدد' : 'Not set';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) {
+    const [year, month, day] = String(value).split('-');
+    return language === 'ar' ? `${day}/${month}/${year}` : `${month}/${day}/${year}`;
+  }
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '-';
+  if (Number.isNaN(date.getTime())) return language === 'ar' ? 'غير محدد' : 'Not set';
   const day = new Intl.DateTimeFormat(language === 'ar' ? 'ar' : 'en', { day: '2-digit' }).format(date);
   const month = new Intl.DateTimeFormat(language === 'ar' ? 'ar' : 'en', { month: '2-digit' }).format(date);
   const year = new Intl.DateTimeFormat(language === 'ar' ? 'ar' : 'en', { year: 'numeric' }).format(date);
@@ -179,13 +202,15 @@ function splitDateTime(value) {
 
 function joinDateTime(date, time) {
   if (!date && !time) return '';
-  if (!date || !time) return 'invalid';
+  if (date && !time) return date;
+  if (!date && time) return 'invalid';
   return `${date}T${time}`;
 }
 
 function isValidDateTime(value) {
   if (!value) return true;
   if (value === 'invalid') return false;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) return true;
   return !Number.isNaN(new Date(value).getTime());
 }
 
@@ -197,12 +222,12 @@ function isMostlyLatin(value = '') {
   return latin > arabic;
 }
 
-function makeInitialBookForm(defaultCategory, language) {
+function makeInitialBookForm(defaultCategory, language, defaultBookType = defaultType) {
   return {
     title: '',
     author: '',
     translator: '',
-    type: defaultType,
+    type: defaultBookType,
     category_id: defaultCategory.id,
     subcategory_id: defaultCategory.subcategories[0].id,
     status: defaultStatus,
@@ -226,7 +251,7 @@ function makeInitialBookForm(defaultCategory, language) {
     audio_duration: '',
     notes: '',
     favorite_quote: '',
-    created_at: nowLocal(),
+    created_at: '',
     started_at: '',
     finished_at: ''
   };
@@ -244,7 +269,7 @@ function DateInput({ label, value, onChange, t }) {
     <fieldset className="dateTimeField">
       <legend>{label}</legend>
       <label>
-        {t('date')}
+        {t('date')} <small>{t('optional')}</small>
         <input
           type="date"
           value={parts.date}
@@ -252,14 +277,14 @@ function DateInput({ label, value, onChange, t }) {
         />
       </label>
       <label>
-        {t('time')}
+        {t('time')} <small>{t('optional')}</small>
         <input
           type="time"
           value={parts.time}
           onChange={(event) => update({ ...parts, time: event.target.value })}
         />
       </label>
-      <small className="fieldHint">{t('dateFormatHint')}</small>
+      <small className="fieldHint">{t('dateTimeOptionalHint')}</small>
       {invalid && <small className="fieldError">{t('invalidDateTime')}</small>}
     </fieldset>
   );
@@ -281,7 +306,7 @@ function buildBookFromForm(form) {
     quotes: [],
     impact: {},
     needs_review: !form.isbn_13 && !form.cover_url,
-    created_at: form.created_at || date
+    created_at: form.created_at || ''
   };
 }
 
@@ -668,7 +693,7 @@ function ImportBooksDialog({ type, books, categories, language, onClose, onImpor
   );
 }
 
-function AddBookModal({ onClose, onSave, language, categories, tags, onAddCategory, onAddSubcategory, onAddTag }) {
+function AddBookModal({ onClose, onSave, language, categories, tags, defaultCategoryId, defaultBookType, onAddCategory, onAddSubcategory, onAddTag }) {
   const { t } = useTranslation();
   const [mode, setMode] = useState('manual');
   const [addMode, setAddMode] = useState('quick');
@@ -683,8 +708,8 @@ function AddBookModal({ onClose, onSave, language, categories, tags, onAddCatego
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newSubcategoryName, setNewSubcategoryName] = useState('');
   const [newTagName, setNewTagName] = useState('');
-  const defaultCategory = categories[0];
-  const [form, setForm] = useState(() => makeInitialBookForm(defaultCategory, language));
+  const defaultCategory = categories.find((category) => category.id === Number(defaultCategoryId)) || categories[0];
+  const [form, setForm] = useState(() => makeInitialBookForm(defaultCategory, language, defaultBookType || defaultType));
 
   const subcategories = getCategory(categories, form.category_id)?.subcategories || [];
   const selectedTags = tags.filter((tag) => form.tagIds.includes(tag.id));
@@ -713,8 +738,6 @@ function AddBookModal({ onClose, onSave, language, categories, tags, onAddCatego
           next.subcategory_id = category.subcategories[0].id;
         }
       }
-      if (field === 'status' && value === 'reading' && !next.started_at) next.started_at = nowLocal();
-      if (field === 'status' && value === 'completed' && !next.finished_at) next.finished_at = nowLocal();
       if (field === 'status' && value !== 'completed') next.rating = 0;
       return next;
     });
@@ -816,7 +839,7 @@ function AddBookModal({ onClose, onSave, language, categories, tags, onAddCatego
   function saveAndAddAnother() {
     if (!validateFormBeforeSave()) return;
     onSave(buildBookFromForm(form), { keepOpen: true });
-    setForm(makeInitialBookForm(defaultCategory, language));
+    setForm(makeInitialBookForm(defaultCategory, language, defaultBookType || defaultType));
     setError('');
     setSaveNotice(t('bookSavedReadyForNext'));
     setNewCategoryName('');
@@ -1174,7 +1197,7 @@ function BookCard({ book, language, onSelect, categories }) {
   );
 }
 
-function DetailsPanel({ book, language, onClose, onStatusChange, onToggleReadingSession, categories, tags, mode = 'panel' }) {
+function DetailsPanel({ book, language, onClose, onStatusChange, onToggleReadingSession, onFeatureMessage, categories, tags, mode = 'panel' }) {
   const { t } = useTranslation();
   if (!book) return null;
   const category = getCategory(categories, book.category_id);
@@ -1204,11 +1227,15 @@ function DetailsPanel({ book, language, onClose, onStatusChange, onToggleReading
       <p className="muted">{book.author}</p>
       {book.translator && <p>{t('translator')}: {book.translator}</p>}
       <div className="detailActions">
-        <button className="secondaryButton" type="button">{t('edit')}</button>
+        <button className="secondaryButton" type="button" onClick={() => onFeatureMessage?.(t('editSoonMessage'))}>{t('edit')}</button>
         <button className="secondaryButton" type="button" onClick={() => onToggleReadingSession(book.id)}>
           {activeSession ? t('endSession') : t('startSession')}
         </button>
-        {book.file_url && <button className="secondaryButton" type="button">{t('openFile')}</button>}
+        {book.file_url && (
+          <button className="secondaryButton" type="button" onClick={() => onFeatureMessage?.(t('openFileHint'))}>
+            {t('openFile')}
+          </button>
+        )}
       </div>
       <label className="statusSelect">
         {t('readingStatus')}
@@ -1262,17 +1289,182 @@ function DetailsPanel({ book, language, onClose, onStatusChange, onToggleReading
   );
 }
 
+function ProfileDialog({ settings, stats, language, onClose }) {
+  const { t } = useTranslation();
+  return (
+    <div className="modalOverlay" role="dialog" aria-modal="true">
+      <div className="modal compactModal">
+        <div className="modalHeader">
+          <div>
+            <h2>{t('profile')}</h2>
+            <p>{t('profileHint')}</p>
+          </div>
+          <button className="iconButton" type="button" onClick={onClose} title={t('cancel')}>
+            <X size={20} />
+          </button>
+        </div>
+        <div className="profileHero">
+          <span className="profileAvatar"><User size={34} /></span>
+          <div>
+            <h3>{settings.displayName || t('guestUser')}</h3>
+            <p>{settings.libraryDescription || t('personalLibrary')}</p>
+          </div>
+        </div>
+        <div className="profileStats">
+          <div><strong>{stats.total}</strong><span>{t('books')}</span></div>
+          <div><strong>{stats.completed}</strong><span>{t('booksRead')}</span></div>
+          <div><strong>{stats.reading}</strong><span>{t('currentlyReading')}</span></div>
+          <div><strong>{formatMinutes(stats.minutes)}</strong><span>{t('totalReadingTime')}</span></div>
+          <div><strong>{stats.averageRating || t('unrated')}</strong><span>{t('averageRating')}</span></div>
+          <div><strong>{formatDateTime(stats.lastAdded, language)}</strong><span>{t('lastBookAdded')}</span></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SettingsDialog({
+  settings,
+  categories,
+  onClose,
+  onSave,
+  onExportBackup,
+  onImportBackup,
+  onClearLocalData
+}) {
+  const { t } = useTranslation();
+  const [draft, setDraft] = useState(settings);
+
+  function update(field, value) {
+    setDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  function submit(event) {
+    event.preventDefault();
+    onSave(draft);
+  }
+
+  return (
+    <div className="modalOverlay" role="dialog" aria-modal="true">
+      <div className="modal settingsModal">
+        <div className="modalHeader">
+          <div>
+            <h2>{t('accountSettings')}</h2>
+            <p>{t('settingsHint')}</p>
+          </div>
+          <button className="iconButton" type="button" onClick={onClose} title={t('cancel')}>
+            <X size={20} />
+          </button>
+        </div>
+        <form className="bookForm" onSubmit={submit}>
+          <section className="formSection settingsSection">
+            <div className="formSectionHeader staticHeader">{t('accountData')}</div>
+            <div className="formSectionBody formGrid">
+              <label>{t('displayName')}<input value={draft.displayName} onChange={(event) => update('displayName', event.target.value)} /></label>
+              <label>{t('libraryDescription')}<input value={draft.libraryDescription} onChange={(event) => update('libraryDescription', event.target.value)} /></label>
+              <label>
+                {t('languagePreference')}
+                <select value={draft.language} onChange={(event) => update('language', event.target.value)}>
+                  <option value="ar">{t('arabic')}</option>
+                  <option value="en">{t('english')}</option>
+                </select>
+              </label>
+              <label>
+                {t('themePreference')}
+                <select value={draft.themePreference} onChange={(event) => update('themePreference', event.target.value)}>
+                  <option value="light">{t('lightTheme')}</option>
+                  <option value="dark">{t('darkTheme')}</option>
+                  <option value="system">{t('systemTheme')}</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section className="formSection settingsSection">
+            <div className="formSectionHeader staticHeader">{t('libraryPreferences')}</div>
+            <div className="formSectionBody formGrid">
+              <label>
+                {t('defaultView')}
+                <select value={draft.defaultView} onChange={(event) => update('defaultView', event.target.value)}>
+                  <option value="summary">{t('summaryView')}</option>
+                  <option value="covers">{t('coversView')}</option>
+                  <option value="list">{t('listView')}</option>
+                </select>
+              </label>
+              <label>
+                {t('defaultCategory')}
+                <select value={draft.defaultCategoryId} onChange={(event) => update('defaultCategoryId', event.target.value)}>
+                  <option value="">{t('firstCategoryDefault')}</option>
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>{category.name_ar || category.name_en}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                {t('defaultBookType')}
+                <select value={draft.defaultBookType} onChange={(event) => update('defaultBookType', event.target.value)}>
+                  {bookTypes.filter((type) => ['paper', 'pdf', 'epub', 'external'].includes(type.id)).map((type) => (
+                    <option key={type.id} value={type.id}>{t(type.labelKey)}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section className="formSection settingsSection">
+            <div className="formSectionHeader staticHeader">{t('dataSafety')}</div>
+            <div className="formSectionBody">
+              <div className="settingsActions">
+                <button className="secondaryButton" type="button" onClick={onExportBackup}>
+                  <Download size={17} /> {t('exportBackupJson')}
+                </button>
+                <label className="smallUploadButton">
+                  <Download size={17} /> {t('importBackupJson')}
+                  <input type="file" accept="application/json,.json" onChange={onImportBackup} />
+                </label>
+                <button className="dangerButton" type="button" onClick={onClearLocalData}>
+                  {t('clearLocalLibraryData')}
+                </button>
+              </div>
+              <p className="hint">{t('dataSafetyHint')}</p>
+            </div>
+          </section>
+
+          <div className="modalActions stickyActions">
+            <button className="secondaryButton" type="button" onClick={onClose}>{t('cancel')}</button>
+            <button className="primaryButton" type="submit"><Check size={18} /> {t('saveSettings')}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const { t, i18n } = useTranslation();
+  const accountMenuRef = useRef(null);
+  const [userSettings, setUserSettings] = useState(() => {
+    const legacySettings = typeof localStorage === 'undefined'
+      ? {}
+      : {
+          language: localStorage.getItem('maktabati.language') || defaultUserSettings.language,
+          themePreference: localStorage.getItem('maktabati.theme') || defaultUserSettings.themePreference
+        };
+    return {
+      ...defaultUserSettings,
+      ...legacySettings,
+      ...readStoredJson(USER_SETTINGS_STORAGE_KEY, {})
+    };
+  });
   const [language, setLanguage] = useState(() =>
     typeof localStorage === 'undefined'
-      ? i18n.language || 'ar'
-      : localStorage.getItem('maktabati.language') || i18n.language || 'ar'
+      ? userSettings.language || i18n.language || 'ar'
+      : userSettings.language || localStorage.getItem('maktabati.language') || i18n.language || 'ar'
   );
   const [theme, setTheme] = useState(() =>
     typeof localStorage === 'undefined'
-      ? 'light'
-      : localStorage.getItem('maktabati.theme') || 'light'
+      ? resolveThemePreference(userSettings.themePreference)
+      : resolveThemePreference(userSettings.themePreference || localStorage.getItem('maktabati.theme') || 'light')
   );
   const [books, setBooks] = useState(() => readStoredJson(BOOKS_STORAGE_KEY, sampleBooks));
   const [categories, setCategories] = useState(() => readStoredJson(CATEGORIES_STORAGE_KEY, initialCategories));
@@ -1286,17 +1478,34 @@ function App() {
     rating: 'all',
     translation: 'all'
   });
-  const [viewMode, setViewMode] = useState('summary');
+  const [viewMode, setViewMode] = useState(userSettings.defaultView || 'summary');
   const [showAdd, setShowAdd] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [importType, setImportType] = useState('');
+  const [showProfile, setShowProfile] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [showAccountMenu, setShowAccountMenu] = useState(false);
   const [showSmartShelves, setShowSmartShelves] = useState(false);
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [soonMessage, setSoonMessage] = useState('');
+  const [toastMessage, setToastMessage] = useState('');
   const [selectedBookId, setSelectedBookId] = useState(null);
   const [activePage, setActivePage] = useState('library');
+
+  useEffect(() => {
+    localStorage.setItem(USER_SETTINGS_STORAGE_KEY, JSON.stringify(userSettings));
+  }, [userSettings]);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (accountMenuRef.current && !accountMenuRef.current.contains(event.target)) {
+        setShowAccountMenu(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
   useEffect(() => {
     document.documentElement.lang = language;
     document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr';
@@ -1365,6 +1574,25 @@ function App() {
       completed: completed.length,
       hours: Math.round(minutes / 60),
       completion: books.length ? Math.round((completed.length / books.length) * 100) : 0
+    };
+  }, [books]);
+
+  const profileStats = useMemo(() => {
+    const completed = books.filter((book) => book.status === 'completed');
+    const rated = completed.filter((book) => Number(book.rating) > 0);
+    const minutes = books.flatMap((book) => book.reading_sessions || []).reduce((sum, item) => sum + (Number(item.duration_minutes) || 0), 0);
+    const datedBooks = books
+      .filter((book) => book.created_at && !Number.isNaN(new Date(book.created_at).getTime()))
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return {
+      total: books.length,
+      completed: completed.length,
+      reading: books.filter((book) => book.status === 'reading').length,
+      minutes,
+      averageRating: rated.length
+        ? (rated.reduce((sum, book) => sum + Number(book.rating), 0) / rated.length).toFixed(1)
+        : '',
+      lastAdded: datedBooks[0]?.created_at || ''
     };
   }, [books]);
 
@@ -1540,6 +1768,86 @@ function App() {
     URL.revokeObjectURL(url);
   }
 
+  function exportBackupJson() {
+    const backup = {
+      version: 1,
+      exported_at: new Date().toISOString(),
+      books,
+      categories,
+      tags,
+      settings: userSettings
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'maktabati-backup.json';
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function importBackupJson(event) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result || ''));
+        const nextBooks = Array.isArray(parsed) ? parsed : parsed.books;
+        if (!Array.isArray(nextBooks)) {
+          setToastMessage(t('invalidBackupFile'));
+          return;
+        }
+        if (!window.confirm(t('importBackupConfirm'))) return;
+        setBooks(nextBooks);
+        if (Array.isArray(parsed.categories)) setCategories(parsed.categories);
+        if (Array.isArray(parsed.tags)) setTags(parsed.tags);
+        if (parsed.settings) {
+          const nextSettings = { ...defaultUserSettings, ...parsed.settings };
+          setUserSettings(nextSettings);
+          setLanguage(nextSettings.language);
+          setTheme(resolveThemePreference(nextSettings.themePreference));
+          setViewMode(nextSettings.defaultView || 'summary');
+        }
+        setToastMessage(t('backupImported'));
+      } catch {
+        setToastMessage(t('invalidBackupFile'));
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  function saveSettings(nextSettings) {
+    const normalized = {
+      ...defaultUserSettings,
+      ...nextSettings,
+      displayName: nextSettings.displayName.trim() || defaultUserSettings.displayName,
+      libraryDescription: nextSettings.libraryDescription.trim() || defaultUserSettings.libraryDescription
+    };
+    setUserSettings(normalized);
+    setLanguage(normalized.language);
+    setTheme(resolveThemePreference(normalized.themePreference));
+    setViewMode(normalized.defaultView || 'summary');
+    setShowSettings(false);
+    setToastMessage(t('settingsSaved'));
+  }
+
+  function clearLocalData() {
+    if (!window.confirm(t('clearLocalDataConfirm'))) return;
+    setBooks([]);
+    setSelectedBookId(null);
+    setActivePage('library');
+    setToastMessage(t('localDataCleared'));
+  }
+
+  function logoutLocalSession() {
+    if (!window.confirm(t('logoutConfirm'))) return;
+    localStorage.setItem(USER_SESSION_STORAGE_KEY, 'logged-out');
+    setShowAccountMenu(false);
+    setToastMessage(t('logoutDone'));
+  }
+
   function exportCsv() {
     const header = ['title', 'author', 'translator', 'isbn_13', 'type', 'status', 'rating'];
     const rows = books.map((book) => header.map((key) => `"${String(book[key] ?? '').replaceAll('"', '""')}"`).join(','));
@@ -1563,7 +1871,7 @@ function App() {
           </div>
         </div>
         <div className="topActions">
-          <div className="accountMenu">
+          <div className="accountMenu" ref={accountMenuRef}>
             <button
               className="accountButton"
               type="button"
@@ -1571,29 +1879,45 @@ function App() {
               aria-expanded={showAccountMenu}
             >
               <span className="accountAvatar"><User size={17} /></span>
-              <span className="accountLabel">{t('account')}</span>
+              <span className="accountLabel">{userSettings.displayName || t('account')}</span>
               <ChevronDown size={16} />
             </button>
             {showAccountMenu && (
               <div className="accountDropdown">
-                <strong>{t('guestUser')}</strong>
-                <span>{t('personalLibrary')}</span>
-                <button type="button">{t('profile')}</button>
-                <button type="button">{t('accountSettings')}</button>
-                <button type="button">{t('logout')}</button>
+                <strong>{userSettings.displayName || t('guestUser')}</strong>
+                <span>{userSettings.libraryDescription || t('personalLibrary')}</span>
+                <button type="button" onClick={() => { setShowProfile(true); setShowAccountMenu(false); }}>{t('profile')}</button>
+                <button type="button" onClick={() => { setShowSettings(true); setShowAccountMenu(false); }}>{t('accountSettings')}</button>
+                <button type="button" onClick={logoutLocalSession}>{t('logout')}</button>
               </div>
             )}
           </div>
-          <button className="secondaryButton" type="button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+          <button
+            className="secondaryButton"
+            type="button"
+            onClick={() => {
+              const nextTheme = theme === 'dark' ? 'light' : 'dark';
+              setTheme(nextTheme);
+              setUserSettings((current) => ({ ...current, themePreference: nextTheme }));
+            }}
+          >
             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
             {theme === 'dark' ? t('lightMode') : t('darkMode')}
           </button>
-          <button className="secondaryButton" type="button" onClick={() => setLanguage(language === 'ar' ? 'en' : 'ar')}>
+          <button
+            className="secondaryButton"
+            type="button"
+            onClick={() => {
+              const nextLanguage = language === 'ar' ? 'en' : 'ar';
+              setLanguage(nextLanguage);
+              setUserSettings((current) => ({ ...current, language: nextLanguage }));
+            }}
+          >
             <Globe2 size={18} /> {language === 'ar' ? t('english') : t('arabic')}
           </button>
           <div className="addBookMenu">
             <button className="primaryButton" type="button" onClick={() => setShowAddMenu((value) => !value)} aria-expanded={showAddMenu}>
-              <Plus size={19} /> {t('addBook')} <ChevronDown size={16} />
+              <Plus size={19} /> {t('addBook')}
             </button>
             {showAddMenu && (
               <div className="addBookDropdown">
@@ -1612,6 +1936,13 @@ function App() {
         </div>
       </header>
 
+      {toastMessage && (
+        <div className="toastNotice">
+          <span>{toastMessage}</span>
+          <button type="button" onClick={() => setToastMessage('')}><X size={15} /></button>
+        </div>
+      )}
+
       <main className={activePage === 'library' && !selectedBook ? 'layout noDetailsLayout' : 'layout'}>
         <section className="mainColumn">
           {activePage === 'details' && selectedBook ? (
@@ -1624,6 +1955,7 @@ function App() {
               onClose={() => setActivePage('library')}
               onStatusChange={changeStatus}
               onToggleReadingSession={toggleReadingSession}
+              onFeatureMessage={setSoonMessage}
             />
           ) : (
             <>
@@ -1632,7 +1964,7 @@ function App() {
                 <button className="comingSoonTab" type="button" onClick={() => setSoonMessage(t('smartShelvesSoonMessage'))}>
                   <ListChecks size={18} /> {t('smartShelves')} <span>{t('comingSoon')}</span>
                 </button>
-                <button><Clock3 size={18} /> {t('analytics')}</button>
+                <button type="button" onClick={() => setSoonMessage(t('analyticsSoonMessage'))}><Clock3 size={18} /> {t('analytics')}</button>
                 <button className="comingSoonTab" type="button" onClick={() => setSoonMessage(t('knowledgeMapSoonMessage'))}>
                   <Map size={18} /> {t('knowledgeMap')} <span>{t('comingSoon')}</span>
                 </button>
@@ -1781,6 +2113,7 @@ function App() {
             onClose={() => setSelectedBookId(null)}
             onStatusChange={changeStatus}
             onToggleReadingSession={toggleReadingSession}
+            onFeatureMessage={setSoonMessage}
           />
         )}
       </main>
@@ -1795,6 +2128,27 @@ function App() {
           onAddCategory={addMainCategory}
           onAddSubcategory={addSubcategory}
           onAddTag={addTag}
+          defaultCategoryId={userSettings.defaultCategoryId}
+          defaultBookType={userSettings.defaultBookType}
+        />
+      )}
+      {showProfile && (
+        <ProfileDialog
+          settings={userSettings}
+          stats={profileStats}
+          language={language}
+          onClose={() => setShowProfile(false)}
+        />
+      )}
+      {showSettings && (
+        <SettingsDialog
+          settings={userSettings}
+          categories={categories}
+          onClose={() => setShowSettings(false)}
+          onSave={saveSettings}
+          onExportBackup={exportBackupJson}
+          onImportBackup={importBackupJson}
+          onClearLocalData={clearLocalData}
         />
       )}
       {importType && (
