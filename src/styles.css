@@ -934,29 +934,6 @@ label textarea,
   min-width: 150px;
 }
 
-.moreFiltersMenu {
-  position: relative;
-}
-
-.moreFiltersDropdown {
-  position: absolute;
-  inset-block-start: calc(100% + 8px);
-  inset-inline-start: 0;
-  z-index: 9;
-  width: 220px;
-  display: grid;
-  gap: 8px;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-}
-
-.moreFiltersDropdown select {
-  width: 100%;
-}
-
 .smartShelfCompact {
   position: relative;
   display: flex;
@@ -2030,13 +2007,10 @@ textarea {
   .exportBar .secondaryButton,
   .viewToggle,
   .searchBox,
-  .moreFiltersMenu,
-  .moreFiltersMenu .secondaryButton,
   .filters select {
     width: 100%;
   }
 
-  .moreFiltersDropdown,
   .smartShelfDropdown {
     inset-inline: 0 auto;
     width: 100%;

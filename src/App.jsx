@@ -214,6 +214,18 @@ function isValidDateTime(value) {
   return !Number.isNaN(new Date(value).getTime());
 }
 
+function sanitizeIsbnInput(value) {
+  const compact = String(value || '').replace(/[\s-]/g, '').toUpperCase();
+  const chars = compact.replace(/[^0-9X]/g, '').split('');
+  return chars.filter((char, index) => char !== 'X' || index === chars.length - 1).join('');
+}
+
+function isValidIsbnInput(value) {
+  if (!value) return true;
+  if (/^\d{13}$/.test(value)) return true;
+  return /^\d{9}[\dX]$/.test(value);
+}
+
 function isMostlyLatin(value = '') {
   const text = String(value).trim();
   if (!text) return false;
@@ -233,6 +245,7 @@ function makeInitialBookForm(defaultCategory, language, defaultBookType = defaul
     status: defaultStatus,
     rating: 0,
     tagIds: [],
+    isbn: '',
     isbn_10: '',
     isbn_13: '',
     publisher: '',
@@ -290,13 +303,31 @@ function DateInput({ label, value, onChange, t }) {
   );
 }
 
+function IsbnInput({ value, onChange, onBlur, showError, t }) {
+  return (
+    <label>
+      {t('isbnOptionalLabel')}
+      <input
+        value={value}
+        inputMode="text"
+        autoComplete="off"
+        placeholder={t('isbnExamplePlaceholder')}
+        onChange={(event) => onChange(sanitizeIsbnInput(event.target.value))}
+        onBlur={onBlur}
+      />
+      {showError && <small className="fieldError">{t('invalidIsbn')}</small>}
+    </label>
+  );
+}
+
 function buildBookFromForm(form) {
   const date = nowLocal();
+  const isbn = sanitizeIsbnInput(form.isbn || form.isbn_13 || form.isbn_10);
   return {
     ...form,
     id: crypto.randomUUID(),
-    isbn_10: normalizeIsbn(form.isbn_10),
-    isbn_13: normalizeIsbn(form.isbn_13 || form.isbn_10),
+    isbn_10: isbn.length === 10 ? isbn : '',
+    isbn_13: isbn.length === 13 ? isbn : '',
     tags: form.tagIds,
     rating: form.status === 'completed' ? Number(form.rating) : 0,
     pages: Number(form.pages) || '',
@@ -305,7 +336,7 @@ function buildBookFromForm(form) {
     reading_sessions: [],
     quotes: [],
     impact: {},
-    needs_review: !form.isbn_13 && !form.cover_url,
+    needs_review: !isbn && !form.cover_url,
     created_at: form.created_at || ''
   };
 }
@@ -702,6 +733,7 @@ function AddBookModal({ onClose, onSave, language, categories, tags, defaultCate
   const [showNewSubcategory, setShowNewSubcategory] = useState(false);
   const [tagSearch, setTagSearch] = useState('');
   const [isbnQuery, setIsbnQuery] = useState('');
+  const [isbnTouched, setIsbnTouched] = useState(false);
   const [lookupState, setLookupState] = useState('');
   const [error, setError] = useState('');
   const [saveNotice, setSaveNotice] = useState('');
@@ -726,6 +758,7 @@ function AddBookModal({ onClose, onSave, language, categories, tags, defaultCate
   ].slice(0, 28);
   const canSave = Boolean(form.title.trim() && form.author.trim());
   const hasValidDates = [form.created_at, form.started_at, form.finished_at].every(isValidDateTime);
+  const hasValidIsbn = isValidIsbnInput(form.isbn);
 
   function updateField(field, value) {
     if (saveNotice) setSaveNotice('');
@@ -797,7 +830,7 @@ function AddBookModal({ onClose, onSave, language, categories, tags, defaultCate
   }
 
   function fakeLookup() {
-    const isbn = normalizeIsbn(isbnQuery);
+    const isbn = sanitizeIsbnInput(isbnQuery);
     if (isbn === '9780140449068') {
       setForm((current) => ({
         ...current,
@@ -806,6 +839,7 @@ function AddBookModal({ onClose, onSave, language, categories, tags, defaultCate
         type: 'epub',
         category_id: 5,
         subcategory_id: 503,
+        isbn,
         isbn_13: isbn,
         language: 'English',
         file_url: 'D:/Books/around-world.epub'
@@ -824,6 +858,11 @@ function AddBookModal({ onClose, onSave, language, categories, tags, defaultCate
     }
     if (!hasValidDates) {
       setError(t('invalidDateTime'));
+      return false;
+    }
+    if (!hasValidIsbn) {
+      setIsbnTouched(true);
+      setError(t('invalidIsbn'));
       return false;
     }
     return true;
@@ -848,6 +887,7 @@ function AddBookModal({ onClose, onSave, language, categories, tags, defaultCate
     setTagSearch('');
     setIsbnQuery('');
     setLookupState('');
+    setIsbnTouched(false);
     setOpenSections({ basics: true });
   }
 
@@ -909,7 +949,11 @@ function AddBookModal({ onClose, onSave, language, categories, tags, defaultCate
 
         {mode === 'isbn' && (
           <div className="isbnPanel">
-            <input value={isbnQuery} onChange={(event) => setIsbnQuery(event.target.value)} placeholder={t('isbnPlaceholder')} />
+            <input
+              value={isbnQuery}
+              onChange={(event) => setIsbnQuery(sanitizeIsbnInput(event.target.value))}
+              placeholder={t('isbnPlaceholder')}
+            />
             <div className="rowActions">
               <button className="primaryButton" type="button" onClick={fakeLookup}>
                 <Search size={18} /> {t('search')}
@@ -964,6 +1008,13 @@ function AddBookModal({ onClose, onSave, language, categories, tags, defaultCate
                       {readingStatuses.map((status) => <option key={status.id} value={status.id}>{t(status.labelKey)}</option>)}
                     </select>
                   </label>
+                  <IsbnInput
+                    value={form.isbn}
+                    onChange={(value) => updateField('isbn', value)}
+                    onBlur={() => setIsbnTouched(true)}
+                    showError={isbnTouched && !hasValidIsbn}
+                    t={t}
+                  />
                 </div>
                 <div className="coverUpload">
                   <span>{t('bookCover')}</span>
@@ -1053,9 +1104,14 @@ function AddBookModal({ onClose, onSave, language, categories, tags, defaultCate
 
                 <DetailSection id="publishing" title={t('publishingData')}>
                   <div className="formGrid">
+                    <IsbnInput
+                      value={form.isbn}
+                      onChange={(value) => updateField('isbn', value)}
+                      onBlur={() => setIsbnTouched(true)}
+                      showError={isbnTouched && !hasValidIsbn}
+                      t={t}
+                    />
                     {[
-                      ['isbn_10', 'isbn10'],
-                      ['isbn_13', 'isbn13'],
                       ['publisher', 'publisher'],
                       ['publication_year', 'publicationYear'],
                       ['edition', 'edition'],
@@ -1141,13 +1197,14 @@ function AddBookModal({ onClose, onSave, language, categories, tags, defaultCate
 
             <div className="modalActions stickyActions">
               <button className="secondaryButton" type="button" onClick={onClose}>{t('cancel')}</button>
-              <button className="primaryButton" type="submit" disabled={!canSave || !hasValidDates}><Check size={18} /> {t('saveBook')}</button>
-              <button className="secondaryButton" type="button" onClick={saveAndAddAnother} disabled={!canSave || !hasValidDates}>
+              <button className="primaryButton" type="submit" disabled={!canSave || !hasValidDates || !hasValidIsbn}><Check size={18} /> {t('saveBook')}</button>
+              <button className="secondaryButton" type="button" onClick={saveAndAddAnother} disabled={!canSave || !hasValidDates || !hasValidIsbn}>
                 <Plus size={18} /> {t('saveAndAddAnother')}
               </button>
             </div>
             {!canSave && <p className="hint saveHint">{t('requiredBookFields')}</p>}
             {canSave && !hasValidDates && <p className="error saveHint">{t('invalidDateTime')}</p>}
+            {canSave && hasValidDates && !hasValidIsbn && <p className="error saveHint">{t('invalidIsbn')}</p>}
           </form>
         )}
       </div>
@@ -1486,7 +1543,6 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [showAccountMenu, setShowAccountMenu] = useState(false);
   const [showSmartShelves, setShowSmartShelves] = useState(false);
-  const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [soonMessage, setSoonMessage] = useState('');
   const [toastMessage, setToastMessage] = useState('');
@@ -2045,23 +2101,11 @@ function App() {
                   <option value="all">{t('bookType')}: {t('all')}</option>
                   {bookTypes.map((type) => <option key={type.id} value={type.id}>{t(type.labelKey)}</option>)}
                 </select>
-                <div className="moreFiltersMenu">
-                  <button className="secondaryButton" type="button" onClick={() => setShowMoreFilters((value) => !value)} aria-expanded={showMoreFilters}>
-                    <Filter size={16} /> {t('moreFilters')} <ChevronDown size={15} />
-                  </button>
-                  {showMoreFilters && (
-                    <div className="moreFiltersDropdown">
-                      <label>
-                        {t('translation')}
-                        <select value={filters.translation} onChange={(event) => setFilters({ ...filters, translation: event.target.value })}>
-                          <option value="all">{t('all')}</option>
-                          <option value="translated">{t('translated')}</option>
-                          <option value="notTranslated">{t('notTranslated')}</option>
-                        </select>
-                      </label>
-                    </div>
-                  )}
-                </div>
+                <select value={filters.translation} onChange={(event) => setFilters({ ...filters, translation: event.target.value })}>
+                  <option value="all">{t('translation')}: {t('all')}</option>
+                  <option value="translated">{t('translated')}</option>
+                  <option value="notTranslated">{t('notTranslated')}</option>
+                </select>
               </section>
 
               <section className="smartShelfCompact">
