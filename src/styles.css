@@ -1553,6 +1553,32 @@ label span {
   font-size: 0.76rem;
 }
 
+.fieldError {
+  color: var(--danger);
+  font-size: 0.76rem;
+}
+
+.dateTimeField {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  color: var(--muted);
+}
+
+.dateTimeField legend,
+.dateTimeField .fieldHint,
+.dateTimeField .fieldError {
+  grid-column: 1 / -1;
+}
+
+.dateTimeField legend {
+  padding: 0;
+  margin: 0;
+}
+
 .labelText {
   display: inline-flex;
   align-items: baseline;
@@ -1879,6 +1905,7 @@ textarea {
   .importStats,
   .formGrid,
   .detailsGrid,
+  .dateTimeField,
   .addModes {
     grid-template-columns: 1fr;
   }

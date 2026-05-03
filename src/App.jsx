@@ -38,6 +38,19 @@ import {
 
 const nowLocal = () => new Date().toISOString().slice(0, 16);
 const digitalTypes = ['pdf', 'epub', 'external'];
+const BOOKS_STORAGE_KEY = 'maktabati.books';
+const CATEGORIES_STORAGE_KEY = 'maktabati.categories';
+const TAGS_STORAGE_KEY = 'maktabati.tags';
+
+function readStoredJson(key, fallback) {
+  if (typeof localStorage === 'undefined') return fallback;
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
 const defaultStatus = 'not_started';
 const defaultType = 'paper';
 
@@ -146,7 +159,7 @@ function formatMinutes(minutes) {
 function formatDateTime(value, language = 'ar') {
   if (!value) return '-';
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+  if (Number.isNaN(date.getTime())) return '-';
   const day = new Intl.DateTimeFormat(language === 'ar' ? 'ar' : 'en', { day: '2-digit' }).format(date);
   const month = new Intl.DateTimeFormat(language === 'ar' ? 'ar' : 'en', { month: '2-digit' }).format(date);
   const year = new Intl.DateTimeFormat(language === 'ar' ? 'ar' : 'en', { year: 'numeric' }).format(date);
@@ -156,6 +169,24 @@ function formatDateTime(value, language = 'ar') {
     hour12: true
   }).format(date);
   return `${day}/${month}/${year} - ${time}`;
+}
+
+function splitDateTime(value) {
+  if (!value || value === 'invalid') return { date: '', time: '' };
+  const [datePart = '', timePart = ''] = String(value).split('T');
+  return { date: datePart, time: timePart.slice(0, 5) };
+}
+
+function joinDateTime(date, time) {
+  if (!date && !time) return '';
+  if (!date || !time) return 'invalid';
+  return `${date}T${time}`;
+}
+
+function isValidDateTime(value) {
+  if (!value) return true;
+  if (value === 'invalid') return false;
+  return !Number.isNaN(new Date(value).getTime());
 }
 
 function isMostlyLatin(value = '') {
@@ -202,12 +233,35 @@ function makeInitialBookForm(defaultCategory, language) {
 }
 
 function DateInput({ label, value, onChange, t }) {
+  const parts = splitDateTime(value);
+  const invalid = value === 'invalid';
+
+  function update(nextParts) {
+    onChange(joinDateTime(nextParts.date, nextParts.time));
+  }
+
   return (
-    <label>
-      {label}
-      <input type="datetime-local" value={value} onChange={(event) => onChange(event.target.value)} />
+    <fieldset className="dateTimeField">
+      <legend>{label}</legend>
+      <label>
+        {t('date')}
+        <input
+          type="date"
+          value={parts.date}
+          onChange={(event) => update({ ...parts, date: event.target.value })}
+        />
+      </label>
+      <label>
+        {t('time')}
+        <input
+          type="time"
+          value={parts.time}
+          onChange={(event) => update({ ...parts, time: event.target.value })}
+        />
+      </label>
       <small className="fieldHint">{t('dateFormatHint')}</small>
-    </label>
+      {invalid && <small className="fieldError">{t('invalidDateTime')}</small>}
+    </fieldset>
   );
 }
 
@@ -630,38 +684,7 @@ function AddBookModal({ onClose, onSave, language, categories, tags, onAddCatego
   const [newSubcategoryName, setNewSubcategoryName] = useState('');
   const [newTagName, setNewTagName] = useState('');
   const defaultCategory = categories[0];
-  const [form, setForm] = useState({
-    title: '',
-    author: '',
-    translator: '',
-    type: 'paper',
-    category_id: defaultCategory.id,
-    subcategory_id: defaultCategory.subcategories[0].id,
-    status: 'not_started',
-    rating: 0,
-    tagIds: [],
-    isbn_10: '',
-    isbn_13: '',
-    publisher: '',
-    publication_year: '',
-    edition: '',
-    purchase_price: '',
-    pages: '',
-    language: language === 'ar' ? 'العربية' : 'English',
-    cover_url: '',
-    cover_file_name: '',
-    shelf_location: '',
-    room: '',
-    shelf: '',
-    box: '',
-    file_url: '',
-    audio_duration: '',
-    notes: '',
-    favorite_quote: '',
-    created_at: nowLocal(),
-    started_at: '',
-    finished_at: ''
-  });
+  const [form, setForm] = useState(() => makeInitialBookForm(defaultCategory, language));
 
   const subcategories = getCategory(categories, form.category_id)?.subcategories || [];
   const selectedTags = tags.filter((tag) => form.tagIds.includes(tag.id));
@@ -677,6 +700,7 @@ function AddBookModal({ onClose, onSave, language, categories, tags, onAddCatego
     ...searchedTags.filter((tag) => !form.tagIds.includes(tag.id))
   ].slice(0, 28);
   const canSave = Boolean(form.title.trim() && form.author.trim());
+  const hasValidDates = [form.created_at, form.started_at, form.finished_at].every(isValidDateTime);
 
   function updateField(field, value) {
     if (saveNotice) setSaveNotice('');
@@ -770,40 +794,27 @@ function AddBookModal({ onClose, onSave, language, categories, tags, onAddCatego
     setLookupState(t('notFoundManual'));
   }
 
-  function submit(event) {
-    event.preventDefault();
+  function validateFormBeforeSave() {
     if (!canSave) {
       setError(t('requiredBookFields'));
-      return;
+      return false;
     }
+    if (!hasValidDates) {
+      setError(t('invalidDateTime'));
+      return false;
+    }
+    return true;
+  }
+
+  function submit(event) {
+    event.preventDefault();
+    if (!validateFormBeforeSave()) return;
     onSave(buildBookFromForm(form));
-    onClose();
-    return;
-    const date = nowLocal();
-    onSave({
-      ...form,
-      id: crypto.randomUUID(),
-      isbn_10: normalizeIsbn(form.isbn_10),
-      isbn_13: normalizeIsbn(form.isbn_13 || form.isbn_10),
-      tags: form.tagIds,
-      rating: form.status === 'completed' ? Number(form.rating) : 0,
-      pages: Number(form.pages) || '',
-      shelf_location: form.shelf_location || [form.room && `الغرفة: ${form.room}`, form.shelf && `الرف: ${form.shelf}`, form.box && `الصندوق: ${form.box}`].filter(Boolean).join(' - '),
-      status_history: [{ status: form.status, datetime: date }],
-      reading_sessions: [],
-      quotes: [],
-      impact: {},
-      needs_review: !form.isbn_13 && !form.cover_url,
-      created_at: form.created_at || date
-    });
     onClose();
   }
 
   function saveAndAddAnother() {
-    if (!canSave) {
-      setError(t('requiredBookFields'));
-      return;
-    }
+    if (!validateFormBeforeSave()) return;
     onSave(buildBookFromForm(form), { keepOpen: true });
     setForm(makeInitialBookForm(defaultCategory, language));
     setError('');
@@ -880,7 +891,7 @@ function AddBookModal({ onClose, onSave, language, categories, tags, onAddCatego
               <button className="primaryButton" type="button" onClick={fakeLookup}>
                 <Search size={18} /> {t('search')}
               </button>
-              <button className="secondaryButton" type="button">
+              <button className="secondaryButton" type="button" onClick={() => setLookupState(t('scanBarcodeSoon'))}>
                 <Grid3X3 size={18} /> {t('scanBarcode')}
               </button>
             </div>
@@ -1009,7 +1020,10 @@ function AddBookModal({ onClose, onSave, language, categories, tags, onAddCatego
                     </label>
                     <label>
                       {t('language')}
-                      <input value={form.language} onChange={(event) => updateField('language', event.target.value)} />
+                      <select value={form.language} onChange={(event) => updateField('language', event.target.value)}>
+                        <option value="العربية">{t('arabic')}</option>
+                        <option value="English">{t('english')}</option>
+                      </select>
                     </label>
                   </div>
                 </DetailSection>
@@ -1104,12 +1118,13 @@ function AddBookModal({ onClose, onSave, language, categories, tags, onAddCatego
 
             <div className="modalActions stickyActions">
               <button className="secondaryButton" type="button" onClick={onClose}>{t('cancel')}</button>
-              <button className="primaryButton" type="submit" disabled={!canSave}><Check size={18} /> {t('saveBook')}</button>
-              <button className="secondaryButton" type="button" onClick={saveAndAddAnother} disabled={!canSave}>
+              <button className="primaryButton" type="submit" disabled={!canSave || !hasValidDates}><Check size={18} /> {t('saveBook')}</button>
+              <button className="secondaryButton" type="button" onClick={saveAndAddAnother} disabled={!canSave || !hasValidDates}>
                 <Plus size={18} /> {t('saveAndAddAnother')}
               </button>
             </div>
             {!canSave && <p className="hint saveHint">{t('requiredBookFields')}</p>}
+            {canSave && !hasValidDates && <p className="error saveHint">{t('invalidDateTime')}</p>}
           </form>
         )}
       </div>
@@ -1249,15 +1264,19 @@ function DetailsPanel({ book, language, onClose, onStatusChange, onToggleReading
 
 function App() {
   const { t, i18n } = useTranslation();
-  const [language, setLanguage] = useState(i18n.language || 'ar');
+  const [language, setLanguage] = useState(() =>
+    typeof localStorage === 'undefined'
+      ? i18n.language || 'ar'
+      : localStorage.getItem('maktabati.language') || i18n.language || 'ar'
+  );
   const [theme, setTheme] = useState(() =>
     typeof localStorage === 'undefined'
       ? 'light'
       : localStorage.getItem('maktabati.theme') || 'light'
   );
-  const [books, setBooks] = useState(sampleBooks);
-  const [categories, setCategories] = useState(initialCategories);
-  const [tags, setTags] = useState(initialTags);
+  const [books, setBooks] = useState(() => readStoredJson(BOOKS_STORAGE_KEY, sampleBooks));
+  const [categories, setCategories] = useState(() => readStoredJson(CATEGORIES_STORAGE_KEY, initialCategories));
+  const [tags, setTags] = useState(() => readStoredJson(TAGS_STORAGE_KEY, initialTags));
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState({
     type: 'all',
@@ -1289,6 +1308,18 @@ function App() {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem('maktabati.theme', theme);
   }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem(BOOKS_STORAGE_KEY, JSON.stringify(books));
+  }, [books]);
+
+  useEffect(() => {
+    localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(categories));
+  }, [categories]);
+
+  useEffect(() => {
+    localStorage.setItem(TAGS_STORAGE_KEY, JSON.stringify(tags));
+  }, [tags]);
 
   const selectedBook = books.find((book) => book.id === selectedBookId);
 
