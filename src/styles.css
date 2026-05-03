@@ -1251,6 +1251,38 @@ label textarea,
   color: var(--accent-2);
 }
 
+.currentVolumeField {
+  gap: 7px;
+}
+
+.numberStepper {
+  display: grid;
+  grid-template-columns: 42px minmax(72px, 1fr) 42px;
+  gap: 6px;
+  align-items: center;
+}
+
+.numberStepper input {
+  text-align: center;
+  font-weight: 800;
+}
+
+.numberStepper button {
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 1.25rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.numberStepper button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
 .bookCardBottom {
   justify-content: space-between;
   gap: 8px;

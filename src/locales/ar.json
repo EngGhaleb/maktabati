@@ -108,6 +108,8 @@
   "volumeCount": "عدد المجلدات",
   "currentVolume": "المجلد الحالي",
   "volumeCountHint": "إذا كان الكتاب من مجلد واحد، اترك العدد 1.",
+  "decrease": "ناقص",
+  "increase": "زائد",
   "coverUrl": "صورة الغلاف",
   "bookCover": "غلاف الكتاب",
   "addCover": "إضافة غلاف",

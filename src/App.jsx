@@ -301,7 +301,7 @@ function clampCurrentVolume(value, volumeCount) {
 
 function formatVolumeCount(count, language = 'ar') {
   const total = normalizePositiveInteger(count, 1);
-  return language === 'ar' ? `${total} مجلدات` : `${total} volumes`;
+  return language === 'ar' ? `${total} مجلدًا` : `${total} volumes`;
 }
 
 function formatCurrentVolume(current, count, language = 'ar') {
@@ -446,6 +446,47 @@ function Isbn10Input({ value, onChange, onBlur, showError, t }) {
         onBlur={onBlur}
       />
       {showError && <small className="fieldError">{t('invalidIsbn10')}</small>}
+    </label>
+  );
+}
+
+function CurrentVolumeInput({ value, volumeCount, onChange, t, language = 'ar' }) {
+  const total = normalizePositiveInteger(volumeCount, 1);
+  const current = value === '' ? '' : clampCurrentVolume(value, total);
+
+  function update(nextValue) {
+    if (nextValue === '') {
+      onChange('');
+      return;
+    }
+    onChange(String(clampCurrentVolume(nextValue, total)));
+  }
+
+  function step(delta) {
+    update(Number(current || 1) + delta);
+  }
+
+  return (
+    <label className="currentVolumeField">
+      {t('currentVolume')}
+      <div className="numberStepper">
+        <button type="button" onClick={() => step(-1)} disabled={Number(current || 1) <= 1} aria-label={t('decrease')}>
+          -
+        </button>
+        <input
+          type="number"
+          min="1"
+          max={total}
+          inputMode="numeric"
+          value={current}
+          onChange={(event) => update(sanitizePositiveIntegerInput(event.target.value))}
+          onBlur={() => update(current || 1)}
+        />
+        <button type="button" onClick={() => step(1)} disabled={Number(current || 1) >= total} aria-label={t('increase')}>
+          +
+        </button>
+      </div>
+      <small className="fieldHint">{language === 'ar' ? `من ${total}` : `of ${total}`}</small>
     </label>
   );
 }
@@ -946,6 +987,7 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
   const hasValidVolumeCount = !form.volumeCount || normalizePositiveInteger(form.volumeCount, '') !== '';
   const hasValidCurrentVolume =
     !showCurrentVolume ||
+    !form.currentVolume ||
     (normalizePositiveInteger(form.currentVolume, '') !== '' &&
       Number(form.currentVolume) >= 1 &&
       Number(form.currentVolume) <= normalizedVolumeCount);
@@ -1224,14 +1266,13 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
                     </select>
                   </label>
                   {showCurrentVolume && (
-                    <label>
-                      {t('currentVolume')}
-                      <select value={form.currentVolume || '1'} onChange={(event) => updateField('currentVolume', event.target.value)}>
-                        {Array.from({ length: normalizedVolumeCount }, (_, index) => index + 1).map((volume) => (
-                          <option key={volume} value={volume}>{volume}</option>
-                        ))}
-                      </select>
-                    </label>
+                    <CurrentVolumeInput
+                      value={form.currentVolume || ''}
+                      volumeCount={normalizedVolumeCount}
+                      onChange={(value) => updateField('currentVolume', value)}
+                      t={t}
+                      language={language}
+                    />
                   )}
                   <Isbn13Input
                     value={form.isbn_13}
@@ -1334,14 +1375,13 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
                       </select>
                     </label>
                     {showCurrentVolume && (
-                      <label>
-                        {t('currentVolume')}
-                        <select value={form.currentVolume || '1'} onChange={(event) => updateField('currentVolume', event.target.value)}>
-                          {Array.from({ length: normalizedVolumeCount }, (_, index) => index + 1).map((volume) => (
-                            <option key={volume} value={volume}>{volume}</option>
-                          ))}
-                        </select>
-                      </label>
+                      <CurrentVolumeInput
+                        value={form.currentVolume || ''}
+                        volumeCount={normalizedVolumeCount}
+                        onChange={(value) => updateField('currentVolume', value)}
+                        t={t}
+                        language={language}
+                      />
                     )}
                     <label>
                       {t('language')}
@@ -1582,14 +1622,13 @@ function DetailsPanel({ book, language, timeFormat, onClose, onEdit, onStatusCha
         </select>
       </label>
       {volumeCount > 1 && book.status === 'reading' && (
-        <label className="statusSelect volumeSelect">
-          {t('currentVolume')}
-          <select value={String(currentVolume)} onChange={(event) => onCurrentVolumeChange?.(book.id, event.target.value)}>
-            {Array.from({ length: volumeCount }, (_, index) => index + 1).map((volume) => (
-              <option key={volume} value={volume}>{formatCurrentVolume(volume, volumeCount, language)}</option>
-            ))}
-          </select>
-        </label>
+        <CurrentVolumeInput
+          value={String(currentVolume)}
+          volumeCount={volumeCount}
+          onChange={(value) => onCurrentVolumeChange?.(book.id, value)}
+          t={t}
+          language={language}
+        />
       )}
       {book.status === 'completed' && <RatingStars value={book.rating} disabled />}
       <dl className="detailList">
@@ -1600,6 +1639,7 @@ function DetailsPanel({ book, language, timeFormat, onClose, onEdit, onStatusCha
         <dt>{t('subcategory')}</dt><dd>{safeLocalizedName(subcategory, language)}</dd>
         {pageCount && <><dt>{t('pages')}</dt><dd>{pageCount}</dd></>}
         {volumeCount > 1 && <><dt>{t('volumeCount')}</dt><dd>{volumeCount}</dd></>}
+        {volumeCount > 1 && book.status === 'reading' && <><dt>{t('currentVolume')}</dt><dd>{formatCurrentVolume(currentVolume, volumeCount, language)}</dd></>}
         <dt>{book.type === 'paper' ? t('shelfLocation') : t('fileUrl')}</dt><dd>{book.shelf_location || book.file_url || '-'}</dd>
         <dt>{t('startedAt')}</dt><dd>{formatDateTime(book.started_at, language, timeFormat)}</dd>
         <dt>{t('finishedAt')}</dt><dd>{formatDateTime(book.finished_at, language, timeFormat)}</dd>

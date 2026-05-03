@@ -108,6 +108,8 @@
   "volumeCount": "Volumes",
   "currentVolume": "Current Volume",
   "volumeCountHint": "If the book has one volume, keep the number 1.",
+  "decrease": "Decrease",
+  "increase": "Increase",
   "coverUrl": "Cover Image",
   "bookCover": "Book Cover",
   "addCover": "Add Cover",
