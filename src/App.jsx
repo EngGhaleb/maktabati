@@ -241,16 +241,37 @@ function isValidDateTime(value) {
   return !Number.isNaN(new Date(value).getTime());
 }
 
-function sanitizeIsbnInput(value) {
-  const compact = String(value || '').replace(/[\s-]/g, '').toUpperCase();
-  const chars = compact.replace(/[^0-9X]/g, '').split('');
-  return chars.filter((char, index) => char !== 'X' || index === chars.length - 1).join('');
+function sanitizeIsbn13Input(value) {
+  return String(value || '').replace(/\D/g, '').slice(0, 13);
 }
 
-function isValidIsbnInput(value) {
-  if (!value) return true;
-  if (/^\d{13}$/.test(value)) return true;
-  return /^\d{9}[\dX]$/.test(value);
+function sanitizeIsbn10Input(value) {
+  const compact = String(value || '').replace(/[\s-]/g, '').toUpperCase();
+  const output = [];
+  for (const char of compact) {
+    if (output.length < 9 && /\d/.test(char)) {
+      output.push(char);
+    } else if (output.length === 9 && /[\dX]/.test(char)) {
+      output.push(char);
+      break;
+    }
+    if (output.length >= 10) break;
+  }
+  return output.join('');
+}
+
+function sanitizeIsbnLookupInput(value) {
+  const compact = String(value || '').replace(/[\s-]/g, '').toUpperCase();
+  const chars = compact.replace(/[^0-9X]/g, '').split('');
+  return chars.filter((char, index) => char !== 'X' || index === chars.length - 1).join('').slice(0, 13);
+}
+
+function isValidIsbn13Input(value) {
+  return !value || /^\d{13}$/.test(value);
+}
+
+function isValidIsbn10Input(value) {
+  return !value || /^\d{9}[\dX]$/.test(value);
 }
 
 function isMostlyLatin(value = '') {
@@ -356,31 +377,52 @@ function DateInput({ label, value, onChange, t, timeFormat }) {
   );
 }
 
-function IsbnInput({ value, onChange, onBlur, showError, t }) {
+function Isbn13Input({ value, onChange, onBlur, showError, t }) {
   return (
     <label>
-      {t('isbnOptionalLabel')}
+      {t('isbn13OptionalLabel')}
+      <input
+        value={value}
+        inputMode="numeric"
+        autoComplete="off"
+        placeholder={t('isbn13ExamplePlaceholder')}
+        onChange={(event) => onChange(sanitizeIsbn13Input(event.target.value))}
+        onBlur={onBlur}
+      />
+      {showError && <small className="fieldError">{t('invalidIsbn13')}</small>}
+    </label>
+  );
+}
+
+function Isbn10Input({ value, onChange, onBlur, showError, t }) {
+  return (
+    <label>
+      {t('isbn10OptionalLabel')}
       <input
         value={value}
         inputMode="text"
         autoComplete="off"
-        placeholder={t('isbnExamplePlaceholder')}
-        onChange={(event) => onChange(sanitizeIsbnInput(event.target.value))}
+        placeholder={t('isbn10ExamplePlaceholder')}
+        onChange={(event) => onChange(sanitizeIsbn10Input(event.target.value))}
         onBlur={onBlur}
       />
-      {showError && <small className="fieldError">{t('invalidIsbn')}</small>}
+      {showError && <small className="fieldError">{t('invalidIsbn10')}</small>}
     </label>
   );
 }
 
 function buildBookFromForm(form) {
   const date = nowLocal();
-  const isbn = sanitizeIsbnInput(form.isbn || form.isbn_13 || form.isbn_10);
+  const fallbackIsbn = sanitizeIsbnLookupInput(form.isbn);
+  const isbn10 = sanitizeIsbn10Input(form.isbn_10 || (fallbackIsbn.length === 10 ? fallbackIsbn : ''));
+  const isbn13 = sanitizeIsbn13Input(form.isbn_13 || (fallbackIsbn.length === 13 ? fallbackIsbn : ''));
   return {
     ...form,
     id: crypto.randomUUID(),
-    isbn_10: isbn.length === 10 ? isbn : '',
-    isbn_13: isbn.length === 13 ? isbn : '',
+    isbn_10: isbn10,
+    isbn_13: isbn13,
+    isbn10,
+    isbn13,
     tags: form.tagIds,
     rating: form.status === 'completed' ? Number(form.rating) : 0,
     pages: Number(form.pages) || '',
@@ -389,7 +431,7 @@ function buildBookFromForm(form) {
     reading_sessions: [],
     quotes: [],
     impact: {},
-    needs_review: !isbn && !form.cover_url,
+    needs_review: !isbn10 && !isbn13 && !form.cover_url,
     created_at: form.created_at || ''
   };
 }
@@ -494,14 +536,18 @@ function normalizeImportedRecord(record, categories, language) {
   const ratingValue = String(record.rating || '').trim();
   const rating = ratingValue ? Number(ratingValue) : 0;
   const date = nowLocal();
+  const isbn10 = sanitizeIsbn10Input(String(record.isbn_10 || record.isbn10 || ''));
+  const isbn13 = sanitizeIsbn13Input(String(record.isbn_13 || record.isbn13 || ''));
 
   return {
     id: crypto.randomUUID(),
     title: String(record.title || record['العنوان'] || '').trim(),
     author: String(record.author || record['المؤلف'] || '').trim(),
     translator: String(record.translator || '').trim(),
-    isbn_10: normalizeIsbn(String(record.isbn_10 || record.isbn10 || '')),
-    isbn_13: normalizeIsbn(String(record.isbn_13 || record.isbn13 || '')),
+    isbn_10: isbn10,
+    isbn_13: isbn13,
+    isbn10,
+    isbn13,
     type,
     category_id: category.id,
     subcategory_id: subcategory?.id || category.subcategories[0]?.id,
@@ -525,7 +571,7 @@ function normalizeImportedRecord(record, categories, language) {
     finished_at: String(record.finished_at || record.reading_finished_at || '').trim(),
     created_at: String(record.created_at || '').trim() || date,
     updated_at: String(record.updated_at || '').trim(),
-    needs_review: !(record.isbn_13 || record.isbn13 || record.cover_url || record.cover_image_url),
+    needs_review: !isbn10 && !isbn13 && !(record.cover_url || record.cover_image_url),
     reading_sessions: Array.isArray(record.reading_sessions) ? record.reading_sessions : [],
     status_history: Array.isArray(record.status_history) ? record.status_history : [{ status, datetime: date }],
     quotes: Array.isArray(record.quotes) ? record.quotes : [],
@@ -535,6 +581,8 @@ function normalizeImportedRecord(record, categories, language) {
 
 function validateImportedBook(book, sourceRecord, existingBooks) {
   const ratingRaw = String(sourceRecord.rating || '').trim();
+  const isbn13Raw = String(sourceRecord.isbn_13 || sourceRecord.isbn13 || '').trim();
+  const isbn10Raw = String(sourceRecord.isbn_10 || sourceRecord.isbn10 || '').trim();
   const duplicate = existingBooks.some((existing) => {
     const sameIsbn13 = book.isbn_13 && existing.isbn_13 && book.isbn_13 === existing.isbn_13;
     const sameIsbn10 = book.isbn_10 && existing.isbn_10 && book.isbn_10 === existing.isbn_10;
@@ -548,6 +596,8 @@ function validateImportedBook(book, sourceRecord, existingBooks) {
 
   if (!book.title || !book.author) return 'missing';
   if (ratingRaw && !['1', '2', '3', '4', '5'].includes(ratingRaw)) return 'invalid';
+  if (isbn13Raw && !isValidIsbn13Input(book.isbn_13)) return 'invalid';
+  if (isbn10Raw && !isValidIsbn10Input(book.isbn_10)) return 'invalid';
   if (duplicate) return 'duplicate';
   return 'ready';
 }
@@ -786,7 +836,7 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
   const [showNewSubcategory, setShowNewSubcategory] = useState(false);
   const [tagSearch, setTagSearch] = useState('');
   const [isbnQuery, setIsbnQuery] = useState('');
-  const [isbnTouched, setIsbnTouched] = useState(false);
+  const [isbnTouched, setIsbnTouched] = useState({ isbn10: false, isbn13: false });
   const [lookupState, setLookupState] = useState('');
   const [error, setError] = useState('');
   const [saveNotice, setSaveNotice] = useState('');
@@ -811,7 +861,9 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
   ].slice(0, 28);
   const canSave = Boolean(form.title.trim() && form.author.trim());
   const hasValidDates = [form.created_at, form.started_at, form.finished_at].every(isValidDateTime);
-  const hasValidIsbn = isValidIsbnInput(form.isbn);
+  const hasValidIsbn10 = isValidIsbn10Input(form.isbn_10);
+  const hasValidIsbn13 = isValidIsbn13Input(form.isbn_13);
+  const hasValidIsbn = hasValidIsbn10 && hasValidIsbn13;
 
   function updateField(field, value) {
     if (saveNotice) setSaveNotice('');
@@ -883,7 +935,7 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
   }
 
   function fakeLookup() {
-    const isbn = sanitizeIsbnInput(isbnQuery);
+    const isbn = sanitizeIsbnLookupInput(isbnQuery);
     if (isbn === '9780140449068') {
       setForm((current) => ({
         ...current,
@@ -892,7 +944,6 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
         type: 'epub',
         category_id: 5,
         subcategory_id: 503,
-        isbn,
         isbn_13: isbn,
         language: 'English',
         file_url: 'D:/Books/around-world.epub'
@@ -914,8 +965,8 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
       return false;
     }
     if (!hasValidIsbn) {
-      setIsbnTouched(true);
-      setError(t('invalidIsbn'));
+      setIsbnTouched({ isbn10: true, isbn13: true });
+      setError(!hasValidIsbn13 ? t('invalidIsbn13') : t('invalidIsbn10'));
       return false;
     }
     return true;
@@ -940,7 +991,7 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
     setTagSearch('');
     setIsbnQuery('');
     setLookupState('');
-    setIsbnTouched(false);
+    setIsbnTouched({ isbn10: false, isbn13: false });
     setOpenSections({ basics: true });
   }
 
@@ -1004,7 +1055,7 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
           <div className="isbnPanel">
             <input
               value={isbnQuery}
-              onChange={(event) => setIsbnQuery(sanitizeIsbnInput(event.target.value))}
+              onChange={(event) => setIsbnQuery(sanitizeIsbnLookupInput(event.target.value))}
               placeholder={t('isbnPlaceholder')}
             />
             <div className="rowActions">
@@ -1061,11 +1112,18 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
                       {readingStatuses.map((status) => <option key={status.id} value={status.id}>{t(status.labelKey)}</option>)}
                     </select>
                   </label>
-                  <IsbnInput
-                    value={form.isbn}
-                    onChange={(value) => updateField('isbn', value)}
-                    onBlur={() => setIsbnTouched(true)}
-                    showError={isbnTouched && !hasValidIsbn}
+                  <Isbn13Input
+                    value={form.isbn_13}
+                    onChange={(value) => updateField('isbn_13', value)}
+                    onBlur={() => setIsbnTouched((current) => ({ ...current, isbn13: true }))}
+                    showError={isbnTouched.isbn13 && !hasValidIsbn13}
+                    t={t}
+                  />
+                  <Isbn10Input
+                    value={form.isbn_10}
+                    onChange={(value) => updateField('isbn_10', value)}
+                    onBlur={() => setIsbnTouched((current) => ({ ...current, isbn10: true }))}
+                    showError={isbnTouched.isbn10 && !hasValidIsbn10}
                     t={t}
                   />
                 </div>
@@ -1157,11 +1215,18 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
 
                 <DetailSection id="publishing" title={t('publishingData')}>
                   <div className="formGrid">
-                    <IsbnInput
-                      value={form.isbn}
-                      onChange={(value) => updateField('isbn', value)}
-                      onBlur={() => setIsbnTouched(true)}
-                      showError={isbnTouched && !hasValidIsbn}
+                    <Isbn13Input
+                      value={form.isbn_13}
+                      onChange={(value) => updateField('isbn_13', value)}
+                      onBlur={() => setIsbnTouched((current) => ({ ...current, isbn13: true }))}
+                      showError={isbnTouched.isbn13 && !hasValidIsbn13}
+                      t={t}
+                    />
+                    <Isbn10Input
+                      value={form.isbn_10}
+                      onChange={(value) => updateField('isbn_10', value)}
+                      onBlur={() => setIsbnTouched((current) => ({ ...current, isbn10: true }))}
+                      showError={isbnTouched.isbn10 && !hasValidIsbn10}
                       t={t}
                     />
                     {[
@@ -1257,7 +1322,8 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
             </div>
             {!canSave && <p className="hint saveHint">{t('requiredBookFields')}</p>}
             {canSave && !hasValidDates && <p className="error saveHint">{t('invalidDateTime')}</p>}
-            {canSave && hasValidDates && !hasValidIsbn && <p className="error saveHint">{t('invalidIsbn')}</p>}
+            {canSave && hasValidDates && !hasValidIsbn13 && <p className="error saveHint">{t('invalidIsbn13')}</p>}
+            {canSave && hasValidDates && hasValidIsbn13 && !hasValidIsbn10 && <p className="error saveHint">{t('invalidIsbn10')}</p>}
           </form>
         )}
       </div>
@@ -1966,7 +2032,7 @@ function App() {
   }
 
   function exportCsv() {
-    const header = ['title', 'author', 'translator', 'isbn_13', 'type', 'status', 'rating'];
+    const header = ['title', 'author', 'translator', 'isbn_13', 'isbn_10', 'isbn13', 'isbn10', 'type', 'status', 'rating'];
     const rows = books.map((book) => header.map((key) => `"${String(book[key] ?? '').replaceAll('"', '""')}"`).join(','));
     const blob = new Blob([[header.join(','), ...rows].join('\n')], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
