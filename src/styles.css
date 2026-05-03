@@ -1666,6 +1666,26 @@ label span {
   margin: 0;
 }
 
+.timeDropdowns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(70px, 0.7fr) minmax(90px, 0.9fr);
+  gap: 6px;
+}
+
+.timeDropdowns24 {
+  grid-template-columns: minmax(0, 1fr) minmax(80px, 0.7fr);
+}
+
+.timeDropdowns select {
+  width: 100%;
+  border: 1px solid var(--line);
+  background: var(--field-bg);
+  color: var(--text);
+  border-radius: 8px;
+  min-height: 40px;
+  padding: 8px 10px;
+}
+
 .labelText {
   display: inline-flex;
   align-items: baseline;
@@ -1999,6 +2019,8 @@ textarea {
   .formGrid,
   .detailsGrid,
   .dateTimeField,
+  .timeDropdowns,
+  .timeDropdowns24,
   .addModes {
     grid-template-columns: 1fr;
   }

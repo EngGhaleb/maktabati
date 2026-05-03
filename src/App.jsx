@@ -49,6 +49,7 @@ const defaultUserSettings = {
   libraryDescription: 'مكتبة شخصية',
   language: 'ar',
   themePreference: 'light',
+  timeFormat: '12',
   defaultView: 'summary',
   defaultCategoryId: '',
   defaultBookType: 'paper'
@@ -175,7 +176,11 @@ function formatMinutes(minutes) {
   return `${hours}h ${rest}m`;
 }
 
-function formatDateTime(value, language = 'ar') {
+const minuteOptions = Array.from({ length: 12 }, (_, index) => String(index * 5).padStart(2, '0'));
+const hourOptions24 = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, '0'));
+const hourOptions12 = Array.from({ length: 12 }, (_, index) => String(index + 1));
+
+function formatDateTime(value, language = 'ar', timeFormat = '12') {
   if (!value) return language === 'ar' ? 'غير محدد' : 'Not set';
   if (/^\d{4}-\d{2}-\d{2}$/.test(String(value))) {
     const [year, month, day] = String(value).split('-');
@@ -189,7 +194,7 @@ function formatDateTime(value, language = 'ar') {
   const time = new Intl.DateTimeFormat(language === 'ar' ? 'ar' : 'en', {
     hour: '2-digit',
     minute: '2-digit',
-    hour12: true
+    hour12: timeFormat !== '24'
   }).format(date);
   return `${day}/${month}/${year} - ${time}`;
 }
@@ -203,8 +208,30 @@ function splitDateTime(value) {
 function joinDateTime(date, time) {
   if (!date && !time) return '';
   if (date && !time) return date;
-  if (!date && time) return 'invalid';
+  if (!date && time) return '';
   return `${date}T${time}`;
+}
+
+function splitTimeParts(time, timeFormat = '12') {
+  if (!time) return { hour: '', minute: '', period: 'AM' };
+  const [rawHour = '', rawMinute = ''] = String(time).split(':');
+  const hour24 = Number(rawHour);
+  if (!Number.isInteger(hour24) || hour24 < 0 || hour24 > 23) return { hour: '', minute: '', period: 'AM' };
+  if (timeFormat === '24') {
+    return { hour: String(hour24).padStart(2, '0'), minute: rawMinute || '00', period: '' };
+  }
+  const period = hour24 >= 12 ? 'PM' : 'AM';
+  const hour12 = hour24 % 12 || 12;
+  return { hour: String(hour12), minute: rawMinute || '00', period };
+}
+
+function buildTimeValue({ hour, minute, period }, timeFormat = '12') {
+  if (!hour) return '';
+  const safeMinute = minute || '00';
+  if (timeFormat === '24') return `${String(hour).padStart(2, '0')}:${safeMinute}`;
+  let hour24 = Number(hour) % 12;
+  if (period === 'PM') hour24 += 12;
+  return `${String(hour24).padStart(2, '0')}:${safeMinute}`;
 }
 
 function isValidDateTime(value) {
@@ -270,7 +297,37 @@ function makeInitialBookForm(defaultCategory, language, defaultBookType = defaul
   };
 }
 
-function DateInput({ label, value, onChange, t }) {
+function TimeDropdown({ value, onChange, timeFormat, t }) {
+  const parts = splitTimeParts(value, timeFormat);
+
+  function update(nextParts) {
+    onChange(buildTimeValue(nextParts, timeFormat));
+  }
+
+  return (
+    <div className={timeFormat === '24' ? 'timeDropdowns timeDropdowns24' : 'timeDropdowns'}>
+      <select value={parts.hour} onChange={(event) => update({ ...parts, hour: event.target.value })}>
+        <option value="">{t('chooseTimeOptional')}</option>
+        {(timeFormat === '24' ? hourOptions24 : hourOptions12).map((hour) => (
+          <option key={hour} value={hour}>{hour}</option>
+        ))}
+      </select>
+      <select value={parts.minute} onChange={(event) => update({ ...parts, minute: event.target.value })} disabled={!parts.hour}>
+        {minuteOptions.map((minute) => (
+          <option key={minute} value={minute}>{minute}</option>
+        ))}
+      </select>
+      {timeFormat !== '24' && (
+        <select value={parts.period} onChange={(event) => update({ ...parts, period: event.target.value })} disabled={!parts.hour}>
+          <option value="AM">{t('am')}</option>
+          <option value="PM">{t('pm')}</option>
+        </select>
+      )}
+    </div>
+  );
+}
+
+function DateInput({ label, value, onChange, t, timeFormat }) {
   const parts = splitDateTime(value);
   const invalid = value === 'invalid';
 
@@ -291,11 +348,7 @@ function DateInput({ label, value, onChange, t }) {
       </label>
       <label>
         {t('time')} <small>{t('optional')}</small>
-        <input
-          type="time"
-          value={parts.time}
-          onChange={(event) => update({ ...parts, time: event.target.value })}
-        />
+        <TimeDropdown value={parts.time} timeFormat={timeFormat} onChange={(time) => update({ ...parts, time })} t={t} />
       </label>
       <small className="fieldHint">{t('dateTimeOptionalHint')}</small>
       {invalid && <small className="fieldError">{t('invalidDateTime')}</small>}
@@ -724,7 +777,7 @@ function ImportBooksDialog({ type, books, categories, language, onClose, onImpor
   );
 }
 
-function AddBookModal({ onClose, onSave, language, categories, tags, defaultCategoryId, defaultBookType, onAddCategory, onAddSubcategory, onAddTag }) {
+function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags, defaultCategoryId, defaultBookType, onAddCategory, onAddSubcategory, onAddTag }) {
   const { t } = useTranslation();
   const [mode, setMode] = useState('manual');
   const [addMode, setAddMode] = useState('quick');
@@ -1128,9 +1181,9 @@ function AddBookModal({ onClose, onSave, language, categories, tags, defaultCate
 
                 <DetailSection id="readingRating" title={t('readingAndRating')}>
                   <div className="formGrid">
-                    <DateInput label={t('addedAt')} value={form.created_at} onChange={(value) => updateField('created_at', value)} t={t} />
-                    <DateInput label={t('startedAt')} value={form.started_at} onChange={(value) => updateField('started_at', value)} t={t} />
-                    <DateInput label={t('finishedAt')} value={form.finished_at} onChange={(value) => updateField('finished_at', value)} t={t} />
+                    <DateInput label={t('addedAt')} value={form.created_at} onChange={(value) => updateField('created_at', value)} t={t} timeFormat={timeFormat} />
+                    <DateInput label={t('startedAt')} value={form.started_at} onChange={(value) => updateField('started_at', value)} t={t} timeFormat={timeFormat} />
+                    <DateInput label={t('finishedAt')} value={form.finished_at} onChange={(value) => updateField('finished_at', value)} t={t} timeFormat={timeFormat} />
                   </div>
                   {form.status === 'completed' ? (
                     <div className="inlineField">
@@ -1254,7 +1307,7 @@ function BookCard({ book, language, onSelect, categories }) {
   );
 }
 
-function DetailsPanel({ book, language, onClose, onStatusChange, onToggleReadingSession, onFeatureMessage, categories, tags, mode = 'panel' }) {
+function DetailsPanel({ book, language, timeFormat, onClose, onStatusChange, onToggleReadingSession, onFeatureMessage, categories, tags, mode = 'panel' }) {
   const { t } = useTranslation();
   if (!book) return null;
   const category = getCategory(categories, book.category_id);
@@ -1308,9 +1361,9 @@ function DetailsPanel({ book, language, onClose, onStatusChange, onToggleReading
         <dt>{t('mainCategory')}</dt><dd>{safeLocalizedName(category, language)}</dd>
         <dt>{t('subcategory')}</dt><dd>{safeLocalizedName(subcategory, language)}</dd>
         <dt>{book.type === 'paper' ? t('shelfLocation') : t('fileUrl')}</dt><dd>{book.shelf_location || book.file_url || '-'}</dd>
-        <dt>{t('startedAt')}</dt><dd>{formatDateTime(book.started_at, language)}</dd>
-        <dt>{t('finishedAt')}</dt><dd>{formatDateTime(book.finished_at, language)}</dd>
-        <dt>{t('addedAt')}</dt><dd>{formatDateTime(book.created_at, language)}</dd>
+        <dt>{t('startedAt')}</dt><dd>{formatDateTime(book.started_at, language, timeFormat)}</dd>
+        <dt>{t('finishedAt')}</dt><dd>{formatDateTime(book.finished_at, language, timeFormat)}</dd>
+        <dt>{t('addedAt')}</dt><dd>{formatDateTime(book.created_at, language, timeFormat)}</dd>
       </dl>
       <section>
         <h4>{t('tags')}</h4>
@@ -1322,8 +1375,8 @@ function DetailsPanel({ book, language, onClose, onStatusChange, onToggleReading
           <span>{t('totalReadingTime')}: {formatMinutes(minutes)}</span>
           <span>{t('sessionsCount')}: {book.reading_sessions.length}</span>
           <span>{t('averageSession')}: {formatMinutes(average)}</span>
-          <span>{t('lastSession')}: {formatDateTime(last?.ended_at || last?.started_at, language)}</span>
-          {activeSession && <span>{t('activeSession')}: {formatDateTime(activeSession.started_at, language)}</span>}
+          <span>{t('lastSession')}: {formatDateTime(last?.ended_at || last?.started_at, language, timeFormat)}</span>
+          {activeSession && <span>{t('activeSession')}: {formatDateTime(activeSession.started_at, language, timeFormat)}</span>}
         </div>
       </section>
       <section>
@@ -1346,7 +1399,7 @@ function DetailsPanel({ book, language, onClose, onStatusChange, onToggleReading
   );
 }
 
-function ProfileDialog({ settings, stats, language, onClose }) {
+function ProfileDialog({ settings, stats, language, timeFormat, onClose }) {
   const { t } = useTranslation();
   return (
     <div className="modalOverlay" role="dialog" aria-modal="true">
@@ -1373,7 +1426,7 @@ function ProfileDialog({ settings, stats, language, onClose }) {
           <div><strong>{stats.reading}</strong><span>{t('currentlyReading')}</span></div>
           <div><strong>{formatMinutes(stats.minutes)}</strong><span>{t('totalReadingTime')}</span></div>
           <div><strong>{stats.averageRating || t('unrated')}</strong><span>{t('averageRating')}</span></div>
-          <div><strong>{formatDateTime(stats.lastAdded, language)}</strong><span>{t('lastBookAdded')}</span></div>
+          <div><strong>{formatDateTime(stats.lastAdded, language, timeFormat)}</strong><span>{t('lastBookAdded')}</span></div>
         </div>
       </div>
     </div>
@@ -1432,6 +1485,13 @@ function SettingsDialog({
                   <option value="light">{t('lightTheme')}</option>
                   <option value="dark">{t('darkTheme')}</option>
                   <option value="system">{t('systemTheme')}</option>
+                </select>
+              </label>
+              <label>
+                {t('timeFormat')}
+                <select value={draft.timeFormat || '12'} onChange={(event) => update('timeFormat', event.target.value)}>
+                  <option value="12">{t('timeFormat12')}</option>
+                  <option value="24">{t('timeFormat24')}</option>
                 </select>
               </label>
             </div>
@@ -1879,7 +1939,8 @@ function App() {
       ...defaultUserSettings,
       ...nextSettings,
       displayName: nextSettings.displayName.trim() || defaultUserSettings.displayName,
-      libraryDescription: nextSettings.libraryDescription.trim() || defaultUserSettings.libraryDescription
+      libraryDescription: nextSettings.libraryDescription.trim() || defaultUserSettings.libraryDescription,
+      timeFormat: nextSettings.timeFormat === '24' ? '24' : '12'
     };
     setUserSettings(normalized);
     setLanguage(normalized.language);
@@ -2005,6 +2066,7 @@ function App() {
             <DetailsPanel
               book={selectedBook}
               language={language}
+              timeFormat={userSettings.timeFormat}
               categories={categories}
               tags={tags}
               mode="page"
@@ -2152,6 +2214,7 @@ function App() {
           <DetailsPanel
             book={selectedBook}
             language={language}
+            timeFormat={userSettings.timeFormat}
             categories={categories}
             tags={tags}
             onClose={() => setSelectedBookId(null)}
@@ -2167,6 +2230,7 @@ function App() {
           onClose={() => setShowAdd(false)}
           onSave={saveBook}
           language={language}
+          timeFormat={userSettings.timeFormat}
           categories={categories}
           tags={tags}
           onAddCategory={addMainCategory}
@@ -2181,6 +2245,7 @@ function App() {
           settings={userSettings}
           stats={profileStats}
           language={language}
+          timeFormat={userSettings.timeFormat}
           onClose={() => setShowProfile(false)}
         />
       )}
