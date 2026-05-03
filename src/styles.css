@@ -112,6 +112,20 @@ button:disabled {
   min-width: 0;
 }
 
+.brandButton {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.brandButton:hover h1 {
+  color: var(--accent);
+}
+
 .brandMark {
   width: 42px;
   height: 42px;

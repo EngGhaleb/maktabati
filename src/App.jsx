@@ -105,8 +105,16 @@ const csvHeaderMap = {
   edition: 'edition',
   'سنة النشر': 'publication_year',
   publication_year: 'publication_year',
-  'عدد الصفحات': 'pages',
-  pages: 'pages',
+  'عدد الصفحات': 'pageCount',
+  pageCount: 'pageCount',
+  page_count: 'pageCount',
+  pages: 'pageCount',
+  'عدد المجلدات': 'volumeCount',
+  volumeCount: 'volumeCount',
+  volume_count: 'volumeCount',
+  'المجلد الحالي': 'currentVolume',
+  currentVolume: 'currentVolume',
+  current_volume: 'currentVolume',
   'سعر الشراء': 'purchase_price',
   purchase_price: 'purchase_price',
   'مكان الكتاب': 'shelf_location',
@@ -274,6 +282,34 @@ function isValidIsbn10Input(value) {
   return !value || /^\d{9}[\dX]$/.test(value);
 }
 
+function sanitizePositiveIntegerInput(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function normalizePositiveInteger(value, fallback = '') {
+  const sanitized = sanitizePositiveIntegerInput(value);
+  if (!sanitized) return fallback;
+  const number = Number(sanitized);
+  return Number.isInteger(number) && number > 0 ? number : fallback;
+}
+
+function clampCurrentVolume(value, volumeCount) {
+  const total = normalizePositiveInteger(volumeCount, 1);
+  const current = normalizePositiveInteger(value, 1);
+  return Math.min(Math.max(current, 1), total);
+}
+
+function formatVolumeCount(count, language = 'ar') {
+  const total = normalizePositiveInteger(count, 1);
+  return language === 'ar' ? `${total} مجلدات` : `${total} volumes`;
+}
+
+function formatCurrentVolume(current, count, language = 'ar') {
+  const total = normalizePositiveInteger(count, 1);
+  const selected = clampCurrentVolume(current, total);
+  return language === 'ar' ? `المجلد ${selected} من ${total}` : `Volume ${selected} of ${total}`;
+}
+
 function isMostlyLatin(value = '') {
   const text = String(value).trim();
   if (!text) return false;
@@ -301,6 +337,9 @@ function makeInitialBookForm(defaultCategory, language, defaultBookType = defaul
     edition: '',
     purchase_price: '',
     pages: '',
+    pageCount: '',
+    volumeCount: '1',
+    currentVolume: '1',
     language: language === 'ar' ? 'العربية' : 'English',
     cover_url: '',
     cover_file_name: '',
@@ -360,7 +399,7 @@ function DateInput({ label, value, onChange, t, timeFormat }) {
     <fieldset className="dateTimeField">
       <legend>{label}</legend>
       <label>
-        {t('date')} <small>{t('optional')}</small>
+        {t('date')}
         <input
           type="date"
           value={parts.date}
@@ -368,7 +407,7 @@ function DateInput({ label, value, onChange, t, timeFormat }) {
         />
       </label>
       <label>
-        {t('time')} <small>{t('optional')}</small>
+        {t('time')}
         <TimeDropdown value={parts.time} timeFormat={timeFormat} onChange={(time) => update({ ...parts, time })} t={t} />
       </label>
       <small className="fieldHint">{t('dateTimeOptionalHint')}</small>
@@ -411,28 +450,58 @@ function Isbn10Input({ value, onChange, onBlur, showError, t }) {
   );
 }
 
-function buildBookFromForm(form) {
+function buildBookFromForm(form, existingBook = null) {
   const date = nowLocal();
   const fallbackIsbn = sanitizeIsbnLookupInput(form.isbn);
   const isbn10 = sanitizeIsbn10Input(form.isbn_10 || (fallbackIsbn.length === 10 ? fallbackIsbn : ''));
   const isbn13 = sanitizeIsbn13Input(form.isbn_13 || (fallbackIsbn.length === 13 ? fallbackIsbn : ''));
+  const pageCount = normalizePositiveInteger(form.pageCount || form.pages, '');
+  const volumeCount = normalizePositiveInteger(form.volumeCount, 1);
+  const currentVolume = volumeCount > 1 ? clampCurrentVolume(form.currentVolume, volumeCount) : 1;
   return {
+    ...(existingBook || {}),
     ...form,
-    id: crypto.randomUUID(),
+    id: existingBook?.id || crypto.randomUUID(),
     isbn_10: isbn10,
     isbn_13: isbn13,
     isbn10,
     isbn13,
     tags: form.tagIds,
     rating: form.status === 'completed' ? Number(form.rating) : 0,
-    pages: Number(form.pages) || '',
+    pageCount,
+    pages: pageCount,
+    volumeCount,
+    currentVolume,
     shelf_location: form.shelf_location || [form.room && `الغرفة: ${form.room}`, form.shelf && `الرف: ${form.shelf}`, form.box && `الصندوق: ${form.box}`].filter(Boolean).join(' - '),
-    status_history: [{ status: form.status, datetime: date }],
-    reading_sessions: [],
-    quotes: [],
-    impact: {},
+    status_history: existingBook?.status_history || [{ status: form.status, datetime: date }],
+    reading_sessions: existingBook?.reading_sessions || [],
+    quotes: existingBook?.quotes || [],
+    impact: existingBook?.impact || {},
     needs_review: !isbn10 && !isbn13 && !form.cover_url,
-    created_at: form.created_at || ''
+    created_at: form.created_at || existingBook?.created_at || '',
+    updated_at: existingBook ? date : existingBook?.updated_at
+  };
+}
+
+function makeBookFormFromBook(book, categories, fallbackCategory, language, defaultBookType = defaultType) {
+  if (!book) return makeInitialBookForm(fallbackCategory, language, defaultBookType);
+  const category = getCategory(categories, book.category_id) || fallbackCategory;
+  const subcategory = getSubcategory(categories, category.id, book.subcategory_id) || category.subcategories[0];
+  return {
+    ...makeInitialBookForm(category, language, defaultBookType),
+    ...book,
+    category_id: category.id,
+    subcategory_id: subcategory?.id || category.subcategories[0]?.id,
+    tagIds: book.tags || [],
+    pageCount: book.pageCount || book.pages || '',
+    volumeCount: String(normalizePositiveInteger(book.volumeCount, 1)),
+    currentVolume: String(clampCurrentVolume(book.currentVolume, book.volumeCount || 1)),
+    isbn_10: book.isbn_10 || book.isbn10 || '',
+    isbn_13: book.isbn_13 || book.isbn13 || '',
+    rating: book.rating || 0,
+    type: book.type || defaultBookType,
+    status: book.status || defaultStatus,
+    language: book.language || (language === 'ar' ? 'العربية' : 'English')
   };
 }
 
@@ -538,6 +607,9 @@ function normalizeImportedRecord(record, categories, language) {
   const date = nowLocal();
   const isbn10 = sanitizeIsbn10Input(String(record.isbn_10 || record.isbn10 || ''));
   const isbn13 = sanitizeIsbn13Input(String(record.isbn_13 || record.isbn13 || ''));
+  const pageCount = normalizePositiveInteger(record.pageCount || record.pages, '');
+  const volumeCount = normalizePositiveInteger(record.volumeCount, 1);
+  const currentVolume = volumeCount > 1 ? clampCurrentVolume(record.currentVolume, volumeCount) : 1;
 
   return {
     id: crypto.randomUUID(),
@@ -558,7 +630,10 @@ function normalizeImportedRecord(record, categories, language) {
     publication_year: String(record.publication_year || '').trim(),
     edition: String(record.edition || '').trim(),
     purchase_price: String(record.purchase_price || '').trim(),
-    pages: Number(record.pages) || '',
+    pageCount,
+    pages: pageCount,
+    volumeCount,
+    currentVolume,
     language: language === 'ar' ? 'العربية' : 'English',
     cover_url: String(record.cover_url || record.cover_image_url || '').trim(),
     cover_file_name: '',
@@ -827,8 +902,9 @@ function ImportBooksDialog({ type, books, categories, language, onClose, onImpor
   );
 }
 
-function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags, defaultCategoryId, defaultBookType, onAddCategory, onAddSubcategory, onAddTag }) {
+function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags, defaultCategoryId, defaultBookType, onAddCategory, onAddSubcategory, onAddTag, initialBook = null }) {
   const { t } = useTranslation();
+  const isEditing = Boolean(initialBook);
   const [mode, setMode] = useState('manual');
   const [addMode, setAddMode] = useState('quick');
   const [openSections, setOpenSections] = useState({ basics: true });
@@ -844,7 +920,7 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
   const [newSubcategoryName, setNewSubcategoryName] = useState('');
   const [newTagName, setNewTagName] = useState('');
   const defaultCategory = categories.find((category) => category.id === Number(defaultCategoryId)) || categories[0];
-  const [form, setForm] = useState(() => makeInitialBookForm(defaultCategory, language, defaultBookType || defaultType));
+  const [form, setForm] = useState(() => makeBookFormFromBook(initialBook, categories, defaultCategory, language, defaultBookType || defaultType));
 
   const subcategories = getCategory(categories, form.category_id)?.subcategories || [];
   const selectedTags = tags.filter((tag) => form.tagIds.includes(tag.id));
@@ -864,6 +940,15 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
   const hasValidIsbn10 = isValidIsbn10Input(form.isbn_10);
   const hasValidIsbn13 = isValidIsbn13Input(form.isbn_13);
   const hasValidIsbn = hasValidIsbn10 && hasValidIsbn13;
+  const normalizedVolumeCount = normalizePositiveInteger(form.volumeCount, 1);
+  const showCurrentVolume = form.status === 'reading' && normalizedVolumeCount > 1;
+  const hasValidPageCount = !form.pageCount || normalizePositiveInteger(form.pageCount, '') !== '';
+  const hasValidVolumeCount = !form.volumeCount || normalizePositiveInteger(form.volumeCount, '') !== '';
+  const hasValidCurrentVolume =
+    !showCurrentVolume ||
+    (normalizePositiveInteger(form.currentVolume, '') !== '' &&
+      Number(form.currentVolume) >= 1 &&
+      Number(form.currentVolume) <= normalizedVolumeCount);
 
   function updateField(field, value) {
     if (saveNotice) setSaveNotice('');
@@ -877,6 +962,11 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
         }
       }
       if (field === 'status' && value !== 'completed') next.rating = 0;
+      if (field === 'status' && value !== 'reading') next.currentVolume = '1';
+      if (field === 'volumeCount') {
+        const count = normalizePositiveInteger(value, 1);
+        next.currentVolume = String(clampCurrentVolume(current.currentVolume, count));
+      }
       return next;
     });
   }
@@ -969,13 +1059,25 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
       setError(!hasValidIsbn13 ? t('invalidIsbn13') : t('invalidIsbn10'));
       return false;
     }
+    if (!hasValidPageCount) {
+      setError(t('pageCountInvalid'));
+      return false;
+    }
+    if (!hasValidVolumeCount) {
+      setError(t('volumeCountInvalid'));
+      return false;
+    }
+    if (!hasValidCurrentVolume) {
+      setError(t('currentVolumeInvalid'));
+      return false;
+    }
     return true;
   }
 
   function submit(event) {
     event.preventDefault();
     if (!validateFormBeforeSave()) return;
-    onSave(buildBookFromForm(form));
+    onSave(buildBookFromForm(form, initialBook));
     onClose();
   }
 
@@ -1017,7 +1119,7 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
       <div className="modal">
         <div className="modalHeader">
           <div>
-            <h2>{t('addBook')}</h2>
+            <h2>{isEditing ? t('editBook') : t('addBook')}</h2>
             <p>{t('quickAddHint')}</p>
           </div>
           <button className="iconButton" type="button" onClick={onClose} title={t('cancel')}>
@@ -1107,11 +1209,30 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
                     </select>
                   </label>
                   <label>
+                    {t('volumeCount')}
+                    <input
+                      value={form.volumeCount || ''}
+                      inputMode="numeric"
+                      onChange={(event) => updateField('volumeCount', sanitizePositiveIntegerInput(event.target.value))}
+                    />
+                    <small className="fieldHint">{t('volumeCountHint')}</small>
+                  </label>
+                  <label>
                     {t('readingStatus')}
                     <select value={form.status} onChange={(event) => updateField('status', event.target.value)}>
                       {readingStatuses.map((status) => <option key={status.id} value={status.id}>{t(status.labelKey)}</option>)}
                     </select>
                   </label>
+                  {showCurrentVolume && (
+                    <label>
+                      {t('currentVolume')}
+                      <select value={form.currentVolume || '1'} onChange={(event) => updateField('currentVolume', event.target.value)}>
+                        {Array.from({ length: normalizedVolumeCount }, (_, index) => index + 1).map((volume) => (
+                          <option key={volume} value={volume}>{volume}</option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                   <Isbn13Input
                     value={form.isbn_13}
                     onChange={(value) => updateField('isbn_13', value)}
@@ -1152,7 +1273,7 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
                       <input value={form.author} onChange={(event) => updateField('author', event.target.value)} />
                     </label>
                     <label>
-                      <span className="labelText">{t('translator')} <small>{t('optional')}</small></span>
+                      {t('translator')}
                       <input value={form.translator} onChange={(event) => updateField('translator', event.target.value)} />
                     </label>
                     <label>
@@ -1198,11 +1319,30 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
                       </select>
                     </label>
                     <label>
+                      {t('volumeCount')}
+                      <input
+                        value={form.volumeCount || ''}
+                        inputMode="numeric"
+                        onChange={(event) => updateField('volumeCount', sanitizePositiveIntegerInput(event.target.value))}
+                      />
+                      <small className="fieldHint">{t('volumeCountHint')}</small>
+                    </label>
+                    <label>
                       {t('readingStatus')}
                       <select value={form.status} onChange={(event) => updateField('status', event.target.value)}>
                         {readingStatuses.map((status) => <option key={status.id} value={status.id}>{t(status.labelKey)}</option>)}
                       </select>
                     </label>
+                    {showCurrentVolume && (
+                      <label>
+                        {t('currentVolume')}
+                        <select value={form.currentVolume || '1'} onChange={(event) => updateField('currentVolume', event.target.value)}>
+                          {Array.from({ length: normalizedVolumeCount }, (_, index) => index + 1).map((volume) => (
+                            <option key={volume} value={volume}>{volume}</option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
                     <label>
                       {t('language')}
                       <select value={form.language} onChange={(event) => updateField('language', event.target.value)}>
@@ -1233,7 +1373,6 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
                       ['publisher', 'publisher'],
                       ['publication_year', 'publicationYear'],
                       ['edition', 'edition'],
-                      ['pages', 'pages'],
                       ['purchase_price', 'purchasePrice']
                     ].map(([field, label]) => (
                       <label key={field}>
@@ -1241,6 +1380,14 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
                         <input value={form[field] || ''} onChange={(event) => updateField(field, event.target.value)} />
                       </label>
                     ))}
+                    <label>
+                      {t('pages')}
+                      <input
+                        value={form.pageCount || ''}
+                        inputMode="numeric"
+                        onChange={(event) => updateField('pageCount', sanitizePositiveIntegerInput(event.target.value))}
+                      />
+                    </label>
                   </div>
                 </DetailSection>
 
@@ -1315,15 +1462,20 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
 
             <div className="modalActions stickyActions">
               <button className="secondaryButton" type="button" onClick={onClose}>{t('cancel')}</button>
-              <button className="primaryButton" type="submit" disabled={!canSave || !hasValidDates || !hasValidIsbn}><Check size={18} /> {t('saveBook')}</button>
-              <button className="secondaryButton" type="button" onClick={saveAndAddAnother} disabled={!canSave || !hasValidDates || !hasValidIsbn}>
-                <Plus size={18} /> {t('saveAndAddAnother')}
-              </button>
+              <button className="primaryButton" type="submit" disabled={!canSave || !hasValidDates || !hasValidIsbn || !hasValidPageCount || !hasValidVolumeCount || !hasValidCurrentVolume}><Check size={18} /> {t('saveBook')}</button>
+              {!isEditing && (
+                <button className="secondaryButton" type="button" onClick={saveAndAddAnother} disabled={!canSave || !hasValidDates || !hasValidIsbn || !hasValidPageCount || !hasValidVolumeCount || !hasValidCurrentVolume}>
+                  <Plus size={18} /> {t('saveAndAddAnother')}
+                </button>
+              )}
             </div>
             {!canSave && <p className="hint saveHint">{t('requiredBookFields')}</p>}
             {canSave && !hasValidDates && <p className="error saveHint">{t('invalidDateTime')}</p>}
             {canSave && hasValidDates && !hasValidIsbn13 && <p className="error saveHint">{t('invalidIsbn13')}</p>}
             {canSave && hasValidDates && hasValidIsbn13 && !hasValidIsbn10 && <p className="error saveHint">{t('invalidIsbn10')}</p>}
+            {canSave && !hasValidPageCount && <p className="error saveHint">{t('pageCountInvalid')}</p>}
+            {canSave && !hasValidVolumeCount && <p className="error saveHint">{t('volumeCountInvalid')}</p>}
+            {canSave && !hasValidCurrentVolume && <p className="error saveHint">{t('currentVolumeInvalid')}</p>}
           </form>
         )}
       </div>
@@ -1336,6 +1488,12 @@ function BookCard({ book, language, onSelect, categories }) {
   const category = getCategory(categories, book.category_id);
   const subcategory = getSubcategory(categories, book.category_id, book.subcategory_id);
   const sessionMinutes = book.reading_sessions.reduce((sum, item) => sum + item.duration_minutes, 0);
+  const volumeCount = normalizePositiveInteger(book.volumeCount, 1);
+  const currentVolume = clampCurrentVolume(book.currentVolume, volumeCount);
+  const statusLabel =
+    volumeCount > 1 && book.status === 'reading'
+      ? `${t('reading')} · ${formatCurrentVolume(currentVolume, volumeCount, language)}`
+      : optionLabel(readingStatuses, book.status, t);
 
   return (
     <button className="bookCard" type="button" onClick={() => onSelect(book)}>
@@ -1360,7 +1518,8 @@ function BookCard({ book, language, onSelect, categories }) {
         <div className="bookCardMiddle">
           <span>{safeLocalizedName(category, language)}</span>
           <span>{safeLocalizedName(subcategory, language)}</span>
-          <span>{optionLabel(readingStatuses, book.status, t)}</span>
+          <span>{statusLabel}</span>
+          {volumeCount > 1 && <span>{formatVolumeCount(volumeCount, language)}</span>}
           {book.needs_review && <span>{t('needsReview')}</span>}
         </div>
         <div className="bookCardBottom">
@@ -1373,7 +1532,7 @@ function BookCard({ book, language, onSelect, categories }) {
   );
 }
 
-function DetailsPanel({ book, language, timeFormat, onClose, onStatusChange, onToggleReadingSession, onFeatureMessage, categories, tags, mode = 'panel' }) {
+function DetailsPanel({ book, language, timeFormat, onClose, onEdit, onStatusChange, onCurrentVolumeChange, onToggleReadingSession, onOpenFile, onFeatureMessage, categories, tags, mode = 'panel' }) {
   const { t } = useTranslation();
   if (!book) return null;
   const category = getCategory(categories, book.category_id);
@@ -1383,6 +1542,9 @@ function DetailsPanel({ book, language, timeFormat, onClose, onStatusChange, onT
   const average = book.reading_sessions.length ? Math.round(minutes / book.reading_sessions.length) : 0;
   const last = book.reading_sessions.at(-1);
   const activeSession = getActiveSession(book);
+  const pageCount = normalizePositiveInteger(book.pageCount || book.pages, '');
+  const volumeCount = normalizePositiveInteger(book.volumeCount, 1);
+  const currentVolume = clampCurrentVolume(book.currentVolume, volumeCount);
 
   return (
     <aside className={mode === 'page' ? 'detailsPanel bookDetailsPage' : 'detailsPanel'}>
@@ -1403,12 +1565,12 @@ function DetailsPanel({ book, language, timeFormat, onClose, onStatusChange, onT
       <p className="muted">{book.author}</p>
       {book.translator && <p>{t('translator')}: {book.translator}</p>}
       <div className="detailActions">
-        <button className="secondaryButton" type="button" onClick={() => onFeatureMessage?.(t('editSoonMessage'))}>{t('edit')}</button>
+        <button className="secondaryButton" type="button" onClick={() => onEdit?.(book.id)}>{t('edit')}</button>
         <button className="secondaryButton" type="button" onClick={() => onToggleReadingSession(book.id)}>
           {activeSession ? t('endSession') : t('startSession')}
         </button>
         {book.file_url && (
-          <button className="secondaryButton" type="button" onClick={() => onFeatureMessage?.(t('openFileHint'))}>
+          <button className="secondaryButton" type="button" onClick={() => onOpenFile?.(book)}>
             {t('openFile')}
           </button>
         )}
@@ -1419,6 +1581,16 @@ function DetailsPanel({ book, language, timeFormat, onClose, onStatusChange, onT
           {readingStatuses.map((status) => <option key={status.id} value={status.id}>{t(status.labelKey)}</option>)}
         </select>
       </label>
+      {volumeCount > 1 && book.status === 'reading' && (
+        <label className="statusSelect volumeSelect">
+          {t('currentVolume')}
+          <select value={String(currentVolume)} onChange={(event) => onCurrentVolumeChange?.(book.id, event.target.value)}>
+            {Array.from({ length: volumeCount }, (_, index) => index + 1).map((volume) => (
+              <option key={volume} value={volume}>{formatCurrentVolume(volume, volumeCount, language)}</option>
+            ))}
+          </select>
+        </label>
+      )}
       {book.status === 'completed' && <RatingStars value={book.rating} disabled />}
       <dl className="detailList">
         <dt>{t('isbn10')}</dt><dd>{book.isbn_10 || '-'}</dd>
@@ -1426,6 +1598,8 @@ function DetailsPanel({ book, language, timeFormat, onClose, onStatusChange, onT
         <dt>{t('bookType')}</dt><dd>{optionLabel(bookTypes, book.type, t)}</dd>
         <dt>{t('mainCategory')}</dt><dd>{safeLocalizedName(category, language)}</dd>
         <dt>{t('subcategory')}</dt><dd>{safeLocalizedName(subcategory, language)}</dd>
+        {pageCount && <><dt>{t('pages')}</dt><dd>{pageCount}</dd></>}
+        {volumeCount > 1 && <><dt>{t('volumeCount')}</dt><dd>{volumeCount}</dd></>}
         <dt>{book.type === 'paper' ? t('shelfLocation') : t('fileUrl')}</dt><dd>{book.shelf_location || book.file_url || '-'}</dd>
         <dt>{t('startedAt')}</dt><dd>{formatDateTime(book.started_at, language, timeFormat)}</dd>
         <dt>{t('finishedAt')}</dt><dd>{formatDateTime(book.finished_at, language, timeFormat)}</dd>
@@ -1658,8 +1832,7 @@ function App() {
     category: 'all',
     status: 'all',
     flag: 'all',
-    rating: 'all',
-    translation: 'all'
+    rating: 'all'
   });
   const [viewMode, setViewMode] = useState(userSettings.defaultView || 'summary');
   const [showAdd, setShowAdd] = useState(false);
@@ -1673,6 +1846,7 @@ function App() {
   const [soonMessage, setSoonMessage] = useState('');
   const [toastMessage, setToastMessage] = useState('');
   const [selectedBookId, setSelectedBookId] = useState(null);
+  const [editingBookId, setEditingBookId] = useState(null);
   const [activePage, setActivePage] = useState('library');
 
   useEffect(() => {
@@ -1713,6 +1887,7 @@ function App() {
   }, [tags]);
 
   const selectedBook = books.find((book) => book.id === selectedBookId);
+  const editingBook = books.find((book) => book.id === editingBookId);
 
   const filteredBooks = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -1742,8 +1917,6 @@ function App() {
       if (filters.flag === 'needsReview' && !book.needs_review) return false;
       if (filters.rating === 'unrated' && book.rating) return false;
       if (!['all', 'unrated'].includes(filters.rating) && Number(book.rating) !== Number(filters.rating)) return false;
-      if (filters.translation === 'translated' && !book.translator) return false;
-      if (filters.translation === 'notTranslated' && book.translator) return false;
       return true;
     });
   }, [books, filters, query]);
@@ -1813,6 +1986,14 @@ function App() {
     setActivePage('details');
   }
 
+  function updateBook(book) {
+    setBooks((current) => current.map((item) => (item.id === book.id ? book : item)));
+    setSelectedBookId(book.id);
+    setEditingBookId(null);
+    setActivePage('details');
+    setToastMessage(t('bookUpdated'));
+  }
+
   function importBooks(importedBooks) {
     setBooks((current) => [...importedBooks, ...current]);
     if (importedBooks[0]) {
@@ -1824,6 +2005,27 @@ function App() {
   function openBookDetails(book) {
     setSelectedBookId(book.id);
     setActivePage('details');
+  }
+
+  function goHome() {
+    setActivePage('library');
+    setSelectedBookId(null);
+    setEditingBookId(null);
+  }
+
+  async function openBookFile(book) {
+    const fileUrl = String(book.file_url || '').trim();
+    if (!fileUrl) return;
+    if (/^https?:\/\//i.test(fileUrl)) {
+      window.open(fileUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(fileUrl);
+      setToastMessage(t('filePathCopied'));
+    } catch {
+      setToastMessage(t('openFileHint'));
+    }
   }
 
   function addMainCategory(name) {
@@ -1885,18 +2087,31 @@ function App() {
     setBooks((current) => current.map((book) => {
       if (book.id !== bookId) return book;
       const date = nowLocal();
+      const volumeCount = normalizePositiveInteger(book.volumeCount, 1);
       const next = {
         ...book,
         status,
         status_history: [...book.status_history, { status, datetime: date }]
       };
       if (status === 'reading' && !next.started_at) next.started_at = date;
+      if (status === 'reading' && volumeCount > 1) next.currentVolume = clampCurrentVolume(next.currentVolume, volumeCount);
       if (status === 'completed' && !next.finished_at) {
         next.finished_at = date;
         next.rating = next.rating || 5;
       }
       if (status !== 'completed') next.rating = 0;
       return next;
+    }));
+  }
+
+  function changeCurrentVolume(bookId, value) {
+    setBooks((current) => current.map((book) => {
+      if (book.id !== bookId) return book;
+      const volumeCount = normalizePositiveInteger(book.volumeCount, 1);
+      return {
+        ...book,
+        currentVolume: clampCurrentVolume(value, volumeCount)
+      };
     }));
   }
 
@@ -2032,7 +2247,7 @@ function App() {
   }
 
   function exportCsv() {
-    const header = ['title', 'author', 'translator', 'isbn_13', 'isbn_10', 'isbn13', 'isbn10', 'type', 'status', 'rating'];
+    const header = ['title', 'author', 'translator', 'isbn_13', 'isbn_10', 'isbn13', 'isbn10', 'type', 'status', 'rating', 'pageCount', 'volumeCount', 'currentVolume'];
     const rows = books.map((book) => header.map((key) => `"${String(book[key] ?? '').replaceAll('"', '""')}"`).join(','));
     const blob = new Blob([[header.join(','), ...rows].join('\n')], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -2046,13 +2261,13 @@ function App() {
   return (
     <div className="appShell">
       <header className="topbar">
-        <div className="brand">
+        <button className="brand brandButton" type="button" onClick={goHome}>
           <LogoMark />
           <div>
             <h1>{t('appName')}</h1>
             <p>{t('tagline')}</p>
           </div>
-        </div>
+        </button>
         <div className="topActions">
           <div className="accountMenu" ref={accountMenuRef}>
             <button
@@ -2137,8 +2352,11 @@ function App() {
               tags={tags}
               mode="page"
               onClose={() => setActivePage('library')}
+              onEdit={setEditingBookId}
               onStatusChange={changeStatus}
+              onCurrentVolumeChange={changeCurrentVolume}
               onToggleReadingSession={toggleReadingSession}
+              onOpenFile={openBookFile}
               onFeatureMessage={setSoonMessage}
             />
           ) : (
@@ -2229,11 +2447,6 @@ function App() {
                   <option value="all">{t('bookType')}: {t('all')}</option>
                   {bookTypes.map((type) => <option key={type.id} value={type.id}>{t(type.labelKey)}</option>)}
                 </select>
-                <select value={filters.translation} onChange={(event) => setFilters({ ...filters, translation: event.target.value })}>
-                  <option value="all">{t('translation')}: {t('all')}</option>
-                  <option value="translated">{t('translated')}</option>
-                  <option value="notTranslated">{t('notTranslated')}</option>
-                </select>
               </section>
 
               <section className="smartShelfCompact">
@@ -2284,17 +2497,20 @@ function App() {
             categories={categories}
             tags={tags}
             onClose={() => setSelectedBookId(null)}
+            onEdit={setEditingBookId}
             onStatusChange={changeStatus}
+            onCurrentVolumeChange={changeCurrentVolume}
             onToggleReadingSession={toggleReadingSession}
+            onOpenFile={openBookFile}
             onFeatureMessage={setSoonMessage}
           />
         )}
       </main>
 
-      {showAdd && (
+      {(showAdd || editingBook) && (
         <AddBookModal
-          onClose={() => setShowAdd(false)}
-          onSave={saveBook}
+          onClose={() => { setShowAdd(false); setEditingBookId(null); }}
+          onSave={editingBook ? updateBook : saveBook}
           language={language}
           timeFormat={userSettings.timeFormat}
           categories={categories}
@@ -2304,6 +2520,7 @@ function App() {
           onAddTag={addTag}
           defaultCategoryId={userSettings.defaultCategoryId}
           defaultBookType={userSettings.defaultBookType}
+          initialBook={editingBook}
         />
       )}
       {showProfile && (
