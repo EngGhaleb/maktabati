@@ -789,7 +789,7 @@ p {
 
 .summaryGrid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: minmax(180px, 260px);
   gap: 12px;
   margin: 18px 0;
 }
@@ -1435,6 +1435,21 @@ label textarea,
   font-style: normal;
 }
 
+.detailTextarea {
+  width: 100%;
+  min-height: 74px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field-bg);
+  color: var(--text);
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.quoteTextarea {
+  border-inline-start: 3px solid var(--accent);
+}
+
 .currentVolumeNotice {
   align-self: end;
   margin: 0;
@@ -1694,6 +1709,17 @@ label textarea,
 
 .quickAddGrid {
   align-items: end;
+}
+
+.fullSpanField {
+  grid-column: 1 / -1;
+}
+
+.basicTagsBlock {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 84%, var(--pill-bg));
+  padding: 12px;
 }
 
 .quickVolumeControls {

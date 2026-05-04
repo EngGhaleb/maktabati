@@ -1,7 +1,7 @@
 {
   "appName": "Maktabati",
   "tagline": "A personal library that understands you",
-  "addBook": "Add New Title",
+  "addBook": "New Title",
   "searchPlaceholder": "Search title, author, translator, ISBN, notes, or quotes",
   "filters": "Filters",
   "all": "All",
@@ -25,6 +25,7 @@
   "logoBookmark": "Book + Bookmark",
   "logoKnowledgeWindow": "Knowledge Window",
   "library": "Library",
+  "currentYear": "Current Year",
   "analytics": "Analytics",
   "smartShelves": "Smart Shelves",
   "knowledgeMap": "Knowledge Map",

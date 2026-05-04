@@ -1,7 +1,7 @@
 {
   "appName": "مكتبتي",
   "tagline": "مكتبتك التي تفهمك",
-  "addBook": "إضافة عنوان جديد",
+  "addBook": "عنوان جديد",
   "searchPlaceholder": "ابحث بالعنوان، المؤلف، المترجم، ISBN، الملاحظات أو الاقتباسات",
   "filters": "الفلاتر",
   "all": "الكل",
@@ -25,6 +25,7 @@
   "logoBookmark": "كتاب وعلامة حفظ",
   "logoKnowledgeWindow": "نافذة معرفة",
   "library": "المكتبة",
+  "currentYear": "السنة الحالية",
   "analytics": "التحليلات",
   "smartShelves": "الرفوف الذكية",
   "knowledgeMap": "الخريطة المعرفية",

@@ -207,6 +207,14 @@ function formatDateTime(value, language = 'ar', timeFormat = '12') {
   return `${day}/${month}/${year} - ${time}`;
 }
 
+function getBookYear(book) {
+  const value = book?.created_at || book?.updated_at || '';
+  if (!value) return null;
+  if (/^\d{4}-\d{2}-\d{2}/.test(String(value))) return Number(String(value).slice(0, 4));
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.getFullYear();
+}
+
 function splitDateTime(value) {
   if (!value || value === 'invalid') return { date: '', time: '' };
   const [datePart = '', timePart = ''] = String(value).split('T');
@@ -1183,8 +1191,7 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
   const detailTabs = [
     ['basics', 'basicData'],
     ['reading', 'readingTab'],
-    ['publishing', 'publishingData'],
-    ['organizing', 'organizingTab']
+    ['publishing', 'publishingData']
   ];
 
   function renderCategoryCreationControls() {
@@ -1300,15 +1307,40 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
     );
   }
 
+  function renderTagPicker() {
+    return (
+      <div className="tagPicker basicTagsBlock">
+        {!selectedTags.length && <p className="hint">{t('tagsHelper')}</p>}
+        <input className="tagSearch" value={tagSearch} onChange={(event) => setTagSearch(event.target.value)} placeholder={t('searchTags')} />
+        <div className="inlineAdd compactInlineAdd">
+          <input value={newTagName} onChange={(event) => setNewTagName(event.target.value)} placeholder={t('newTagPlaceholder')} />
+          <button className="secondaryButton" type="button" onClick={addTag}><Plus size={17} /> {t('addTag')}</button>
+        </div>
+        <span className="subtleLabel">{t('suggestedTags')}</span>
+        <div className="chips compactChips">
+          {orderedTags.map((tag) => (
+            <button key={tag.id} type="button" className={form.tagIds.includes(tag.id) ? 'chip active' : 'chip'} onClick={() => toggleTag(tag.id)}>
+              {safeLocalizedName(tag, language)}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   function renderDetailedTab() {
     if (activeDetailTab === 'basics') {
       return (
         <div className="formGrid">
           <label>{t('bookTitle')} *<input ref={titleInputRef} value={form.title} onChange={(event) => updateField('title', event.target.value)} /></label>
           <label>{t('author')} *<input value={form.author} onChange={(event) => updateField('author', event.target.value)} /></label>
+          <label>{t('translator')}<input value={form.translator} onChange={(event) => updateField('translator', event.target.value)} /></label>
           {renderCategoryCreationControls()}
           <label>{t('bookType')}<select value={form.type} onChange={(event) => updateField('type', event.target.value)}>{bookTypes.map((type) => <option key={type.id} value={type.id}>{t(type.labelKey)}</option>)}</select></label>
           <label>{t('language')}<select value={form.language} onChange={(event) => updateField('language', event.target.value)}><option value="العربية">{t('arabic')}</option><option value="English">{t('english')}</option></select></label>
+          <div className="fullSpanField">
+            {renderTagPicker()}
+          </div>
         </div>
       );
     }
@@ -1355,7 +1387,7 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
       );
     }
 
-    return renderTagsAndNotes();
+    return renderCoverLocationFields();
   }
 
   return (
@@ -1734,7 +1766,6 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
                 </button>
               )}
             </div>
-            {!canSave && <p className="hint saveHint">{t('requiredBookFields')}</p>}
             {canSave && !hasValidDates && <p className="error saveHint">{t('invalidDateTime')}</p>}
             {canSave && hasValidDates && !hasValidIsbn13 && <p className="error saveHint">{t('invalidIsbn13')}</p>}
             {canSave && hasValidDates && hasValidIsbn13 && !hasValidIsbn10 && <p className="error saveHint">{t('invalidIsbn10')}</p>}
@@ -1797,7 +1828,24 @@ function BookCard({ book, language, onSelect, categories }) {
   );
 }
 
-function DetailsPanel({ book, language, timeFormat, onClose, onEdit, onDelete, onStatusChange, onCurrentVolumeChange, onToggleReadingSession, onOpenFile, onFeatureMessage, categories, tags, mode = 'panel' }) {
+function DetailsPanel({
+  book,
+  language,
+  timeFormat,
+  onClose,
+  onEdit,
+  onDelete,
+  onStatusChange,
+  onCurrentVolumeChange,
+  onBookFieldChange,
+  onBookImpactChange,
+  onToggleReadingSession,
+  onOpenFile,
+  onFeatureMessage,
+  categories,
+  tags,
+  mode = 'panel'
+}) {
   const { t } = useTranslation();
   if (!book) return null;
   const category = getCategory(categories, book.category_id);
@@ -1890,11 +1938,21 @@ function DetailsPanel({ book, language, timeFormat, onClose, onEdit, onDelete, o
       </section>
       <section>
         <h4>{t('notes')}</h4>
-        <p className="muted">{book.notes || '-'}</p>
+        <textarea
+          className="detailTextarea"
+          value={book.notes || ''}
+          onChange={(event) => onBookFieldChange?.(book.id, 'notes', event.target.value)}
+          placeholder={t('notes')}
+        />
       </section>
       <section>
         <h4>{t('favoriteQuote')}</h4>
-        <p className="quote">{book.favorite_quote || '-'}</p>
+        <textarea
+          className="detailTextarea quoteTextarea"
+          value={book.favorite_quote || ''}
+          onChange={(event) => onBookFieldChange?.(book.id, 'favorite_quote', event.target.value)}
+          placeholder={t('favoriteQuote')}
+        />
       </section>
       <section>
         <h4>{t('bookImpact')}</h4>
@@ -1902,7 +1960,11 @@ function DetailsPanel({ book, language, timeFormat, onClose, onEdit, onDelete, o
           {['impactQuestion1', 'impactQuestion2', 'impactQuestion3', 'impactQuestion4', 'impactQuestion5', 'impactQuestion6'].map((key) => (
             <span key={key}>
               <strong>{t(key)}</strong>
-              {book.impact?.[key] ? <em>{book.impact[key]}</em> : <em>-</em>}
+              <textarea
+                className="detailTextarea"
+                value={book.impact?.[key] || ''}
+                onChange={(event) => onBookImpactChange?.(book.id, key, event.target.value)}
+              />
             </span>
           ))}
         </div>
@@ -2120,6 +2182,7 @@ function App() {
   const [selectedBookId, setSelectedBookId] = useState(null);
   const [editingBookId, setEditingBookId] = useState(null);
   const [activePage, setActivePage] = useState('library');
+  const [libraryScope, setLibraryScope] = useState('all');
 
   useEffect(() => {
     localStorage.setItem(USER_SETTINGS_STORAGE_KEY, JSON.stringify(userSettings));
@@ -2160,6 +2223,7 @@ function App() {
 
   const selectedBook = books.find((book) => book.id === selectedBookId);
   const editingBook = books.find((book) => book.id === editingBookId);
+  const currentYear = new Date().getFullYear();
 
   const filteredBooks = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -2175,6 +2239,7 @@ function App() {
         ...book.quotes.map((quote) => quote.quote_text)
       ].join(' ').toLowerCase();
       if (needle && !text.includes(needle)) return false;
+      if (libraryScope === 'currentYear' && getBookYear(book) !== currentYear) return false;
       if (filters.type !== 'all' && book.type !== filters.type) return false;
       if (filters.category !== 'all' && book.category_id !== Number(filters.category)) return false;
       if (filters.status !== 'all' && book.status !== filters.status) return false;
@@ -2191,7 +2256,7 @@ function App() {
       if (!['all', 'unrated'].includes(filters.rating) && Number(book.rating) !== Number(filters.rating)) return false;
       return true;
     });
-  }, [books, filters, query]);
+  }, [books, filters, query, libraryScope, currentYear]);
 
   const analytics = useMemo(() => {
     const completed = books.filter((book) => book.status === 'completed');
@@ -2290,6 +2355,7 @@ function App() {
 
   function goHome() {
     setActivePage('library');
+    setLibraryScope('all');
     setSelectedBookId(null);
     setEditingBookId(null);
   }
@@ -2394,6 +2460,26 @@ function App() {
         currentVolume: clampCurrentVolume(value, volumeCount)
       };
     }));
+  }
+
+  function updateBookField(bookId, field, value) {
+    setBooks((current) => current.map((book) => (
+      book.id === bookId
+        ? { ...book, [field]: value, updated_at: nowLocal() }
+        : book
+    )));
+  }
+
+  function updateBookImpact(bookId, field, value) {
+    setBooks((current) => current.map((book) => (
+      book.id === bookId
+        ? {
+            ...book,
+            impact: { ...(book.impact || {}), [field]: value },
+            updated_at: nowLocal()
+          }
+        : book
+    )));
   }
 
   function toggleReadingSession(bookId) {
@@ -2637,6 +2723,8 @@ function App() {
               onDelete={deleteBook}
               onStatusChange={changeStatus}
               onCurrentVolumeChange={changeCurrentVolume}
+              onBookFieldChange={updateBookField}
+              onBookImpactChange={updateBookImpact}
               onToggleReadingSession={toggleReadingSession}
               onOpenFile={openBookFile}
               onFeatureMessage={setSoonMessage}
@@ -2644,7 +2732,20 @@ function App() {
           ) : (
             <>
               <nav className="tabs">
-                <button className="active"><BookOpen size={18} /> {t('library')}</button>
+                <button
+                  type="button"
+                  className={libraryScope === 'all' ? 'active' : ''}
+                  onClick={() => setLibraryScope('all')}
+                >
+                  <BookOpen size={18} /> {t('library')}
+                </button>
+                <button
+                  type="button"
+                  className={libraryScope === 'currentYear' ? 'active' : ''}
+                  onClick={() => setLibraryScope('currentYear')}
+                >
+                  <Clock3 size={18} /> {t('currentYear')}
+                </button>
                 <button className="comingSoonTab" type="button" onClick={() => setSoonMessage(t('smartShelvesSoonMessage'))}>
                   <ListChecks size={18} /> {t('smartShelves')} <span>{t('comingSoon')}</span>
                 </button>
@@ -2661,10 +2762,7 @@ function App() {
               )}
 
               <section className="summaryGrid">
-                <div><strong>{analytics.total}</strong><span>{t('books')}</span></div>
-                <div><strong>{analytics.completed}</strong><span>{t('booksRead')}</span></div>
-                <div><strong>{analytics.hours}</strong><span>{t('hoursRead')}</span></div>
-                <div><strong>{analytics.completion}%</strong><span>{t('completionRate')}</span></div>
+                <div><strong>{filteredBooks.length}</strong><span>{t('books')}</span></div>
               </section>
 
               <section className="toolbar">
@@ -2783,6 +2881,8 @@ function App() {
             onDelete={deleteBook}
             onStatusChange={changeStatus}
             onCurrentVolumeChange={changeCurrentVolume}
+            onBookFieldChange={updateBookField}
+            onBookImpactChange={updateBookImpact}
             onToggleReadingSession={toggleReadingSession}
             onOpenFile={openBookFile}
             onFeatureMessage={setSoonMessage}
