@@ -1879,6 +1879,10 @@ label span {
   margin: 0;
 }
 
+.readingDetailsGrid {
+  margin-top: 12px;
+}
+
 .timeDropdowns {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(70px, 0.7fr) minmax(90px, 0.9fr);

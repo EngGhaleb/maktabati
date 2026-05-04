@@ -41,6 +41,7 @@ const digitalTypes = ['pdf', 'epub', 'external'];
 const BOOKS_STORAGE_KEY = 'maktabati.books';
 const CATEGORIES_STORAGE_KEY = 'maktabati.categories';
 const TAGS_STORAGE_KEY = 'maktabati.tags';
+const LANGUAGES_STORAGE_KEY = 'maktabati.languages';
 const USER_SETTINGS_STORAGE_KEY = 'maktabati.userSettings.v1';
 const USER_SESSION_STORAGE_KEY = 'maktabati.localSession.v1';
 
@@ -993,7 +994,7 @@ function ImportBooksDialog({ type, books, categories, language, onClose, onImpor
   );
 }
 
-function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags, defaultCategoryId, defaultBookType, onAddCategory, onAddSubcategory, onAddTag, initialBook = null }) {
+function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags, languageOptions, defaultCategoryId, defaultBookType, onAddCategory, onAddSubcategory, onAddTag, onAddLanguage, initialBook = null }) {
   const { t } = useTranslation();
   const isEditing = Boolean(initialBook);
   const [mode, setMode] = useState('manual');
@@ -1001,6 +1002,7 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
   const [activeDetailTab, setActiveDetailTab] = useState('basics');
   const [showNewCategory, setShowNewCategory] = useState(false);
   const [showNewSubcategory, setShowNewSubcategory] = useState(false);
+  const [showNewLanguage, setShowNewLanguage] = useState(false);
   const [showQuickVolumes, setShowQuickVolumes] = useState(false);
   const [tagSearch, setTagSearch] = useState('');
   const [isbnQuery, setIsbnQuery] = useState('');
@@ -1011,6 +1013,7 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newSubcategoryName, setNewSubcategoryName] = useState('');
   const [newTagName, setNewTagName] = useState('');
+  const [newLanguageName, setNewLanguageName] = useState('');
   const titleInputRef = useRef(null);
   const defaultCategory = categories.find((category) => category.id === Number(defaultCategoryId)) || categories[0];
   const [form, setForm] = useState(() => makeBookFormFromBook(initialBook, categories, defaultCategory, language, defaultBookType || defaultType));
@@ -1123,6 +1126,15 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
     setShowNewSubcategory(false);
   }
 
+  function addLanguageOption() {
+    const languageName = newLanguageName.trim();
+    if (!languageName) return;
+    const nextLanguage = onAddLanguage?.(languageName) || languageName;
+    updateField('language', nextLanguage);
+    setNewLanguageName('');
+    setShowNewLanguage(false);
+  }
+
   function addTag() {
     const tagName = newTagName.trim();
     if (!tagName) return;
@@ -1229,9 +1241,7 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
   }
 
   const detailTabs = [
-    ['basics', 'basicData'],
-    ['reading', 'readingTab'],
-    ['publishing', 'publishingData']
+    ['basics', 'basicData']
   ];
 
   function renderCategoryCreationControls() {
@@ -1369,65 +1379,54 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
   }
 
   function renderDetailedTab() {
-    if (activeDetailTab === 'basics') {
-      return (
-        <div className="formGrid">
-          <label>{t('bookTitle')} *<input ref={titleInputRef} value={form.title} onChange={(event) => updateField('title', event.target.value)} /></label>
-          <label>{t('author')} *<input value={form.author} onChange={(event) => updateField('author', event.target.value)} /></label>
-          <label>{t('translator')}<input value={form.translator} onChange={(event) => updateField('translator', event.target.value)} /></label>
-          <Isbn13Input value={form.isbn_13} onChange={(value) => updateField('isbn_13', value)} onBlur={() => setIsbnTouched((current) => ({ ...current, isbn13: true }))} showError={isbnTouched.isbn13 && !hasValidIsbn13} t={t} />
-          <Isbn10Input value={form.isbn_10} onChange={(value) => updateField('isbn_10', value)} onBlur={() => setIsbnTouched((current) => ({ ...current, isbn10: true }))} showError={isbnTouched.isbn10 && !hasValidIsbn10} t={t} />
-          {renderCategoryCreationControls()}
-          <label>{t('bookType')}<select value={form.type} onChange={(event) => updateField('type', event.target.value)}>{bookTypes.map((type) => <option key={type.id} value={type.id}>{t(type.labelKey)}</option>)}</select></label>
-          <label>{t('language')}<select value={form.language} onChange={(event) => updateField('language', event.target.value)}><option value="العربية">{t('arabic')}</option><option value="English">{t('english')}</option></select></label>
-          <div className="fullSpanField">
-            {renderTagPicker()}
-          </div>
+    return (
+      <div className="formGrid">
+        <label>{t('bookTitle')} *<input ref={titleInputRef} value={form.title} onChange={(event) => updateField('title', event.target.value)} /></label>
+        <label>{t('author')} *<input value={form.author} onChange={(event) => updateField('author', event.target.value)} /></label>
+        <label>{t('translator')}<input value={form.translator} onChange={(event) => updateField('translator', event.target.value)} /></label>
+        <Isbn13Input value={form.isbn_13} onChange={(value) => updateField('isbn_13', value)} onBlur={() => setIsbnTouched((current) => ({ ...current, isbn13: true }))} showError={isbnTouched.isbn13 && !hasValidIsbn13} t={t} />
+        <Isbn10Input value={form.isbn_10} onChange={(value) => updateField('isbn_10', value)} onBlur={() => setIsbnTouched((current) => ({ ...current, isbn10: true }))} showError={isbnTouched.isbn10 && !hasValidIsbn10} t={t} />
+        <label>{t('publisher')}<input value={form.publisher || ''} onChange={(event) => updateField('publisher', event.target.value)} /></label>
+        <label>{t('publicationDate')}<input type="date" value={form.publication_year || ''} onChange={(event) => updateField('publication_year', event.target.value)} /></label>
+        <label>{t('edition')}<input value={form.edition || ''} onChange={(event) => updateField('edition', event.target.value)} /></label>
+        <label>{t('pages')}<input value={form.pageCount || ''} inputMode="numeric" onChange={(event) => updateField('pageCount', sanitizePositiveIntegerInput(event.target.value))} /></label>
+        <label>{t('purchasePrice')}<input value={form.purchase_price || ''} onChange={(event) => updateField('purchase_price', event.target.value)} /></label>
+        {renderCategoryCreationControls()}
+        <label>{t('bookType')}<select value={form.type} onChange={(event) => updateField('type', event.target.value)}>{bookTypes.map((type) => <option key={type.id} value={type.id}>{t(type.labelKey)}</option>)}</select></label>
+        <label>
+          {t('language')}
+          <select
+            value={languageOptions.includes(form.language) ? form.language : form.language || ''}
+            onChange={(event) => {
+              if (event.target.value === '__other__') {
+                setShowNewLanguage(true);
+                return;
+              }
+              updateField('language', event.target.value);
+            }}
+          >
+            {form.language && !languageOptions.includes(form.language) && <option value={form.language}>{form.language}</option>}
+            {languageOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+            <option value="__other__">{t('other')}</option>
+          </select>
+          <button className="linkButton compactLink" type="button" onClick={() => setShowNewLanguage((value) => !value)}>
+            <Plus size={15} /> {t('addLanguage')}
+          </button>
+        </label>
+        {showNewLanguage && (
+          <label>
+            {t('addLanguage')}
+            <div className="inlineAdd">
+              <input value={newLanguageName} onChange={(event) => setNewLanguageName(event.target.value)} placeholder={t('newLanguagePlaceholder')} />
+              <button className="secondaryButton" type="button" onClick={addLanguageOption}><Plus size={17} /> {t('addLanguage')}</button>
+            </div>
+          </label>
+        )}
+        <div className="fullSpanField">
+          {renderTagPicker()}
         </div>
-      );
-    }
-
-    if (activeDetailTab === 'reading') {
-      return (
-        <div className="tabStack">
-          <div className="formGrid">
-            <label>{t('readingStatus')}<select value={form.status} onChange={(event) => updateField('status', event.target.value)}>{readingStatuses.map((status) => <option key={status.id} value={status.id}>{t(status.labelKey)}</option>)}</select></label>
-            <label>{t('pages')}<input value={form.pageCount || ''} inputMode="numeric" onChange={(event) => updateField('pageCount', sanitizePositiveIntegerInput(event.target.value))} /></label>
-            <label>{t('volumeCount')}<input value={form.volumeCount || ''} inputMode="numeric" onChange={(event) => updateField('volumeCount', sanitizePositiveIntegerInput(event.target.value))} /><small className="fieldHint">{t('volumeCountHint')}</small></label>
-            {showCurrentVolume && (
-              <>
-                <CurrentVolumeInput value={form.currentVolume || ''} volumeCount={normalizedVolumeCount} onChange={(value) => updateField('currentVolume', value)} t={t} language={language} />
-                <p className="currentVolumeNotice">{t('currentlyReadingVolume')}: {formatCurrentVolume(form.currentVolume || 1, normalizedVolumeCount, language)}</p>
-              </>
-            )}
-            {form.status !== 'not_started' && <DateInput label={t('startedAt')} value={form.started_at} onChange={(value) => updateField('started_at', value)} t={t} timeFormat={timeFormat} />}
-            {form.status === 'completed' && <DateInput label={t('finishedAt')} value={form.finished_at} onChange={(value) => updateField('finished_at', value)} t={t} timeFormat={timeFormat} />}
-          </div>
-          {form.status === 'completed' ? (
-            <div className="inlineField"><span>{t('rating')}</span><RatingStars value={Number(form.rating)} onChange={(value) => updateField('rating', value)} /></div>
-          ) : (
-            <p className="hint">{t('completedOnlyRating')}</p>
-          )}
-        </div>
-      );
-    }
-
-    if (activeDetailTab === 'publishing') {
-      return (
-        <div className="formGrid">
-          {[
-            ['publisher', 'publisher'],
-            ['publication_year', 'publicationDate'],
-            ['edition', 'edition'],
-            ['purchase_price', 'purchasePrice']
-          ].map(([field, label]) => (
-            <label key={field}>{t(label)}<input value={form[field] || ''} onChange={(event) => updateField(field, event.target.value)} /></label>
-          ))}
-        </div>
-      );
-    }
-
-    return renderCoverLocationFields();
+      </div>
+    );
   }
 
   return (
@@ -1617,18 +1616,20 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
             ) : (
               <>
                 <div className="detailTabsPanel">
-                  <div className="formTabs" role="tablist" aria-label={t('detailedAdd')}>
-                    {detailTabs.map(([id, labelKey]) => (
-                      <button
-                        key={id}
-                        type="button"
-                        className={activeDetailTab === id ? 'active' : ''}
-                        onClick={() => setActiveDetailTab(id)}
-                      >
-                        {t(labelKey)}
-                      </button>
-                    ))}
-                  </div>
+                  {detailTabs.length > 1 && (
+                    <div className="formTabs" role="tablist" aria-label={t('detailedAdd')}>
+                      {detailTabs.map(([id, labelKey]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          className={activeDetailTab === id ? 'active' : ''}
+                          onClick={() => setActiveDetailTab(id)}
+                        >
+                          {t(labelKey)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <section className="tabContent">
                     {renderDetailedTab()}
                   </section>
@@ -1970,6 +1971,26 @@ function DetailsPanel({
           {readingStatuses.map((status) => <option key={status.id} value={status.id}>{t(status.labelKey)}</option>)}
         </select>
       </label>
+      <div className="detailsGrid readingDetailsGrid">
+        {book.status !== 'not_started' && (
+          <DateInput
+            label={t('startedAt')}
+            value={book.started_at}
+            onChange={(value) => onBookFieldChange?.(book.id, 'started_at', value)}
+            t={t}
+            timeFormat={timeFormat}
+          />
+        )}
+        {book.status === 'completed' && (
+          <DateInput
+            label={t('finishedAt')}
+            value={book.finished_at}
+            onChange={(value) => onBookFieldChange?.(book.id, 'finished_at', value)}
+            t={t}
+            timeFormat={timeFormat}
+          />
+        )}
+      </div>
       {volumeCount > 1 && book.status === 'reading' && (
         <>
           <CurrentVolumeInput
@@ -2248,6 +2269,7 @@ function App() {
   const [books, setBooks] = useState(() => readStoredJson(BOOKS_STORAGE_KEY, sampleBooks));
   const [categories, setCategories] = useState(() => readStoredJson(CATEGORIES_STORAGE_KEY, initialCategories));
   const [tags, setTags] = useState(() => readStoredJson(TAGS_STORAGE_KEY, initialTags));
+  const [languageOptions, setLanguageOptions] = useState(() => readStoredJson(LANGUAGES_STORAGE_KEY, ['العربية', 'English']));
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState({
     type: 'all',
@@ -2308,6 +2330,10 @@ function App() {
   useEffect(() => {
     localStorage.setItem(TAGS_STORAGE_KEY, JSON.stringify(tags));
   }, [tags]);
+
+  useEffect(() => {
+    localStorage.setItem(LANGUAGES_STORAGE_KEY, JSON.stringify(languageOptions));
+  }, [languageOptions]);
 
   const selectedBook = books.find((book) => book.id === selectedBookId);
   const editingBook = books.find((book) => book.id === editingBookId);
@@ -2516,6 +2542,17 @@ function App() {
     };
     setTags((current) => [...current, nextTag]);
     return nextTag;
+  }
+
+  function addLanguage(name) {
+    const languageName = String(name || '').trim();
+    if (!languageName) return '';
+    setLanguageOptions((current) => (
+      current.some((item) => item.toLowerCase() === languageName.toLowerCase())
+        ? current
+        : [...current, languageName]
+    ));
+    return languageName;
   }
 
   function changeStatus(bookId, status) {
@@ -2984,9 +3021,11 @@ function App() {
           timeFormat={userSettings.timeFormat}
           categories={categories}
           tags={tags}
+          languageOptions={languageOptions}
           onAddCategory={addMainCategory}
           onAddSubcategory={addSubcategory}
           onAddTag={addTag}
+          onAddLanguage={addLanguage}
           defaultCategoryId={userSettings.defaultCategoryId}
           defaultBookType={userSettings.defaultBookType}
           initialBook={editingBook}
