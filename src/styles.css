@@ -1422,6 +1422,30 @@ label textarea,
   color: var(--muted);
 }
 
+.impactQuestions span {
+  display: grid;
+  gap: 4px;
+}
+
+.impactQuestions strong {
+  color: var(--text);
+}
+
+.impactQuestions em {
+  font-style: normal;
+}
+
+.currentVolumeNotice {
+  align-self: end;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(47, 107, 95, 0.22);
+  border-radius: 8px;
+  background: var(--soft);
+  color: var(--accent);
+  font-weight: 800;
+}
+
 .quote {
   border-inline-start: 3px solid var(--accent);
   padding-inline-start: 10px;
@@ -1629,6 +1653,68 @@ label textarea,
 .bookForm {
   display: grid;
   gap: 14px;
+}
+
+.detailTabsPanel {
+  display: grid;
+  gap: 16px;
+}
+
+.formTabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+
+.formTabs button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  padding: 10px 14px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.formTabs button.active {
+  background: var(--soft);
+  color: var(--accent);
+  border-color: rgba(47, 107, 95, 0.35);
+  font-weight: 800;
+}
+
+.tabContent,
+.tabStack,
+.organizingStack {
+  display: grid;
+  gap: 16px;
+}
+
+.quickAddGrid {
+  align-items: end;
+}
+
+.quickVolumeControls {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+.quickCategoryControls,
+.quickInlineField {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+.quickInlineField {
+  display: grid;
+}
+
+.legacyHidden {
+  display: none;
 }
 
 .segmentedControl {

@@ -351,6 +351,7 @@ function makeInitialBookForm(defaultCategory, language, defaultBookType = defaul
     audio_duration: '',
     notes: '',
     favorite_quote: '',
+    impact: {},
     created_at: '',
     started_at: '',
     finished_at: ''
@@ -517,7 +518,7 @@ function buildBookFromForm(form, existingBook = null) {
     status_history: existingBook?.status_history || [{ status: form.status, datetime: date }],
     reading_sessions: existingBook?.reading_sessions || [],
     quotes: existingBook?.quotes || [],
-    impact: existingBook?.impact || {},
+    impact: form.impact || existingBook?.impact || {},
     needs_review: !isbn10 && !isbn13 && !form.cover_url,
     created_at: form.created_at || existingBook?.created_at || '',
     updated_at: existingBook ? date : existingBook?.updated_at
@@ -540,6 +541,7 @@ function makeBookFormFromBook(book, categories, fallbackCategory, language, defa
     isbn_10: book.isbn_10 || book.isbn10 || '',
     isbn_13: book.isbn_13 || book.isbn13 || '',
     rating: book.rating || 0,
+    impact: book.impact || {},
     type: book.type || defaultBookType,
     status: book.status || defaultStatus,
     language: book.language || (language === 'ar' ? 'العربية' : 'English')
@@ -948,9 +950,10 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
   const isEditing = Boolean(initialBook);
   const [mode, setMode] = useState('manual');
   const [addMode, setAddMode] = useState('quick');
-  const [openSections, setOpenSections] = useState({ basics: true });
+  const [activeDetailTab, setActiveDetailTab] = useState('basics');
   const [showNewCategory, setShowNewCategory] = useState(false);
   const [showNewSubcategory, setShowNewSubcategory] = useState(false);
+  const [showQuickVolumes, setShowQuickVolumes] = useState(false);
   const [tagSearch, setTagSearch] = useState('');
   const [isbnQuery, setIsbnQuery] = useState('');
   const [isbnTouched, setIsbnTouched] = useState({ isbn10: false, isbn13: false });
@@ -960,6 +963,7 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newSubcategoryName, setNewSubcategoryName] = useState('');
   const [newTagName, setNewTagName] = useState('');
+  const titleInputRef = useRef(null);
   const defaultCategory = categories.find((category) => category.id === Number(defaultCategoryId)) || categories[0];
   const [form, setForm] = useState(() => makeBookFormFromBook(initialBook, categories, defaultCategory, language, defaultBookType || defaultType));
 
@@ -992,6 +996,10 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
       Number(form.currentVolume) >= 1 &&
       Number(form.currentVolume) <= normalizedVolumeCount);
 
+  useEffect(() => {
+    if (mode === 'manual') titleInputRef.current?.focus();
+  }, [mode, addMode]);
+
   function updateField(field, value) {
     if (saveNotice) setSaveNotice('');
     if (error) setError('');
@@ -1019,6 +1027,18 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
       tagIds: current.tagIds.includes(tagId)
         ? current.tagIds.filter((id) => id !== tagId)
         : [...current.tagIds, tagId]
+    }));
+  }
+
+  function updateImpactField(field, value) {
+    if (saveNotice) setSaveNotice('');
+    if (error) setError('');
+    setForm((current) => ({
+      ...current,
+      impact: {
+        ...(current.impact || {}),
+        [field]: value
+      }
     }));
   }
 
@@ -1136,24 +1156,206 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
     setIsbnQuery('');
     setLookupState('');
     setIsbnTouched({ isbn10: false, isbn13: false });
-    setOpenSections({ basics: true });
+    setActiveDetailTab('basics');
   }
 
-  function toggleSection(section) {
-    setOpenSections((current) => ({ ...current, [section]: !current[section] }));
+  function saveAndCloseFromQuick() {
+    if (!validateFormBeforeSave()) return;
+    onSave(buildBookFromForm(form, initialBook));
+    onClose();
   }
 
-  function DetailSection({ id, title, children }) {
-    const expanded = !!openSections[id];
+  function handleFormKeyDown(event) {
+    if (event.key !== 'Enter' || event.target.tagName === 'TEXTAREA') return;
+    const focusable = Array.from(event.currentTarget.querySelectorAll('input, select, textarea, button'))
+      .filter((element) => !element.disabled && element.offsetParent !== null);
+    const index = focusable.indexOf(event.target);
+    if (index >= 0 && index < focusable.length - 1) {
+      event.preventDefault();
+      focusable[index + 1].focus();
+    }
+  }
+
+  function DetailSection({ children }) {
+    return <section className="legacySection">{children}</section>;
+  }
+
+  const detailTabs = [
+    ['basics', 'basicData'],
+    ['reading', 'readingTab'],
+    ['publishing', 'publishingData'],
+    ['organizing', 'organizingTab']
+  ];
+
+  function renderCategoryCreationControls() {
     return (
-      <section className="formSection">
-        <button className="formSectionHeader" type="button" onClick={() => toggleSection(id)} aria-expanded={expanded}>
-          <span>{title}</span>
-          <ChevronDown size={17} />
-        </button>
-        {expanded && <div className="formSectionBody">{children}</div>}
-      </section>
+      <>
+        <label>
+          {t('mainCategory')}
+          <select value={form.category_id} onChange={(event) => updateField('category_id', Number(event.target.value))}>
+            {categories.map((category) => <option key={category.id} value={category.id}>{safeLocalizedName(category, language)}</option>)}
+          </select>
+          <button className="linkButton compactLink" type="button" onClick={() => setShowNewCategory((value) => !value)}>
+            <Plus size={15} /> {t('createMainCategory')}
+          </button>
+        </label>
+        <label>
+          {t('subcategory')}
+          <select value={form.subcategory_id} onChange={(event) => updateField('subcategory_id', Number(event.target.value))}>
+            {subcategories.map((item) => <option key={item.id} value={item.id}>{safeLocalizedName(item, language)}</option>)}
+          </select>
+          <button className="linkButton compactLink" type="button" onClick={() => setShowNewSubcategory((value) => !value)}>
+            <Plus size={15} /> {t('createSubcategory')}
+          </button>
+        </label>
+        {showNewCategory && (
+          <label>
+            {t('addMainCategory')}
+            <div className="inlineAdd">
+              <input value={newCategoryName} onChange={(event) => setNewCategoryName(event.target.value)} placeholder={t('newMainCategoryPlaceholder')} />
+              <button className="secondaryButton" type="button" onClick={addMainCategory}><Plus size={17} /> {t('addAsMainCategory')}</button>
+            </div>
+          </label>
+        )}
+        {showNewSubcategory && (
+          <label>
+            {t('addSubcategory')}
+            <div className="inlineAdd">
+              <input value={newSubcategoryName} onChange={(event) => setNewSubcategoryName(event.target.value)} placeholder={t('newSubcategoryPlaceholder')} />
+              <button className="secondaryButton" type="button" onClick={addSubcategory}><Plus size={17} /> {t('addAsSubcategory')}</button>
+            </div>
+          </label>
+        )}
+      </>
     );
+  }
+
+  function renderCoverLocationFields() {
+    return (
+      <>
+        <div className="coverUpload">
+          <span>{t('bookCover')}</span>
+          <label className="smallUploadButton">
+            <ImageUp size={16} />
+            {t('uploadCover')}
+            <input type="file" accept="image/*" onChange={handleCoverUpload} />
+          </label>
+          {form.cover_file_name && <small>{form.cover_file_name}</small>}
+          {form.cover_url && <img src={form.cover_url} alt="" />}
+          {form.cover_url && <button className="linkButton compactLink" type="button" onClick={() => setForm((current) => ({ ...current, cover_url: '', cover_file_name: '' }))}>{t('removeCover')}</button>}
+        </div>
+        <div className="formGrid">
+          <label>{t('shelfLocation')}<input value={form.shelf_location} onChange={(event) => updateField('shelf_location', event.target.value)} /></label>
+          <label>{t('room')}<input value={form.room} onChange={(event) => updateField('room', event.target.value)} /></label>
+          <label>{t('shelf')}<input value={form.shelf} onChange={(event) => updateField('shelf', event.target.value)} /></label>
+          <label>{t('box')}<input value={form.box} onChange={(event) => updateField('box', event.target.value)} /></label>
+          {digitalTypes.includes(form.type) && <label>{t('fileUrl')}<input value={form.file_url} onChange={(event) => updateField('file_url', event.target.value)} /></label>}
+          {form.type === 'audio' && (
+            <>
+              <label>{t('audioUrl')}<input value={form.file_url} onChange={(event) => updateField('file_url', event.target.value)} /></label>
+              <label>{t('audioDuration')}<input value={form.audio_duration} onChange={(event) => updateField('audio_duration', event.target.value)} /></label>
+            </>
+          )}
+        </div>
+      </>
+    );
+  }
+
+  function renderTagsAndNotes() {
+    return (
+      <div className="organizingStack">
+        <div className="tagPicker">
+          {!selectedTags.length && <p className="hint">{t('tagsHelper')}</p>}
+          <input className="tagSearch" value={tagSearch} onChange={(event) => setTagSearch(event.target.value)} placeholder={t('searchTags')} />
+          <div className="inlineAdd compactInlineAdd">
+            <input value={newTagName} onChange={(event) => setNewTagName(event.target.value)} placeholder={t('newTagPlaceholder')} />
+            <button className="secondaryButton" type="button" onClick={addTag}><Plus size={17} /> {t('addTag')}</button>
+          </div>
+          <span className="subtleLabel">{t('suggestedTags')}</span>
+          <div className="chips compactChips">
+            {orderedTags.map((tag) => (
+              <button key={tag.id} type="button" className={form.tagIds.includes(tag.id) ? 'chip active' : 'chip'} onClick={() => toggleTag(tag.id)}>
+                {safeLocalizedName(tag, language)}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="formGrid">
+          <label>{t('notes')}<textarea value={form.notes} onChange={(event) => updateField('notes', event.target.value)} /></label>
+          <label>{t('favoriteQuote')}<textarea value={form.favorite_quote} onChange={(event) => updateField('favorite_quote', event.target.value)} /></label>
+        </div>
+        <section className="impactEditor">
+          <h4>{t('bookImpact')}</h4>
+          <div className="formGrid">
+            {['impactQuestion1', 'impactQuestion2', 'impactQuestion3', 'impactQuestion4', 'impactQuestion5', 'impactQuestion6'].map((key) => (
+              <label key={key}>
+                {t(key)}
+                <textarea value={form.impact?.[key] || ''} onChange={(event) => updateImpactField(key, event.target.value)} />
+              </label>
+            ))}
+          </div>
+        </section>
+        {renderCoverLocationFields()}
+      </div>
+    );
+  }
+
+  function renderDetailedTab() {
+    if (activeDetailTab === 'basics') {
+      return (
+        <div className="formGrid">
+          <label>{t('bookTitle')} *<input ref={titleInputRef} value={form.title} onChange={(event) => updateField('title', event.target.value)} /></label>
+          <label>{t('author')} *<input value={form.author} onChange={(event) => updateField('author', event.target.value)} /></label>
+          {renderCategoryCreationControls()}
+          <label>{t('bookType')}<select value={form.type} onChange={(event) => updateField('type', event.target.value)}>{bookTypes.map((type) => <option key={type.id} value={type.id}>{t(type.labelKey)}</option>)}</select></label>
+          <label>{t('language')}<select value={form.language} onChange={(event) => updateField('language', event.target.value)}><option value="العربية">{t('arabic')}</option><option value="English">{t('english')}</option></select></label>
+        </div>
+      );
+    }
+
+    if (activeDetailTab === 'reading') {
+      return (
+        <div className="tabStack">
+          <div className="formGrid">
+            <label>{t('readingStatus')}<select value={form.status} onChange={(event) => updateField('status', event.target.value)}>{readingStatuses.map((status) => <option key={status.id} value={status.id}>{t(status.labelKey)}</option>)}</select></label>
+            <label>{t('pages')}<input value={form.pageCount || ''} inputMode="numeric" onChange={(event) => updateField('pageCount', sanitizePositiveIntegerInput(event.target.value))} /></label>
+            <label>{t('volumeCount')}<input value={form.volumeCount || ''} inputMode="numeric" onChange={(event) => updateField('volumeCount', sanitizePositiveIntegerInput(event.target.value))} /><small className="fieldHint">{t('volumeCountHint')}</small></label>
+            {showCurrentVolume && (
+              <>
+                <CurrentVolumeInput value={form.currentVolume || ''} volumeCount={normalizedVolumeCount} onChange={(value) => updateField('currentVolume', value)} t={t} language={language} />
+                <p className="currentVolumeNotice">{t('currentlyReadingVolume')}: {formatCurrentVolume(form.currentVolume || 1, normalizedVolumeCount, language)}</p>
+              </>
+            )}
+            {form.status !== 'not_started' && <DateInput label={t('startedAt')} value={form.started_at} onChange={(value) => updateField('started_at', value)} t={t} timeFormat={timeFormat} />}
+            {form.status === 'completed' && <DateInput label={t('finishedAt')} value={form.finished_at} onChange={(value) => updateField('finished_at', value)} t={t} timeFormat={timeFormat} />}
+          </div>
+          {form.status === 'completed' ? (
+            <div className="inlineField"><span>{t('rating')}</span><RatingStars value={Number(form.rating)} onChange={(value) => updateField('rating', value)} /></div>
+          ) : (
+            <p className="hint">{t('completedOnlyRating')}</p>
+          )}
+        </div>
+      );
+    }
+
+    if (activeDetailTab === 'publishing') {
+      return (
+        <div className="formGrid">
+          <Isbn13Input value={form.isbn_13} onChange={(value) => updateField('isbn_13', value)} onBlur={() => setIsbnTouched((current) => ({ ...current, isbn13: true }))} showError={isbnTouched.isbn13 && !hasValidIsbn13} t={t} />
+          <Isbn10Input value={form.isbn_10} onChange={(value) => updateField('isbn_10', value)} onBlur={() => setIsbnTouched((current) => ({ ...current, isbn10: true }))} showError={isbnTouched.isbn10 && !hasValidIsbn10} t={t} />
+          {[
+            ['publisher', 'publisher'],
+            ['publication_year', 'publicationYear'],
+            ['edition', 'edition'],
+            ['purchase_price', 'purchasePrice']
+          ].map(([field, label]) => (
+            <label key={field}>{t(label)}<input value={form[field] || ''} onChange={(event) => updateField(field, event.target.value)} /></label>
+          ))}
+        </div>
+      );
+    }
+
+    return renderTagsAndNotes();
   }
 
   return (
@@ -1215,49 +1417,32 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
         )}
 
         {mode === 'manual' && (
-          <form className="bookForm" onSubmit={submit}>
+          <form className="bookForm" onSubmit={submit} onKeyDown={handleFormKeyDown}>
             {error && <p className="error">{error}</p>}
             {saveNotice && <p className="notice successNotice">{saveNotice}</p>}
             <div className="segmentedControl addLevelToggle">
               <button type="button" className={addMode === 'quick' ? 'active' : ''} onClick={() => setAddMode('quick')}>
                 {t('quickAdd')}
               </button>
-              <button type="button" className={addMode === 'detailed' ? 'active' : ''} onClick={() => { setAddMode('detailed'); setOpenSections({ basics: true }); }}>
+              <button type="button" className={addMode === 'detailed' ? 'active' : ''} onClick={() => { setAddMode('detailed'); setActiveDetailTab('basics'); }}>
                 {t('detailedAdd')}
               </button>
             </div>
 
             {addMode === 'quick' ? (
               <>
-                <div className="formGrid">
+                <div className="formGrid quickAddGrid">
                   <label>
                     {t('bookTitle')} *
-                    <input value={form.title} onChange={(event) => updateField('title', event.target.value)} />
+                    <input ref={titleInputRef} value={form.title} onChange={(event) => updateField('title', event.target.value)} />
                   </label>
                   <label>
                     {t('author')} *
                     <input value={form.author} onChange={(event) => updateField('author', event.target.value)} />
                   </label>
                   <label>
-                    {t('mainCategory')}
-                    <select value={form.category_id} onChange={(event) => updateField('category_id', Number(event.target.value))}>
-                      {categories.map((category) => <option key={category.id} value={category.id}>{safeLocalizedName(category, language)}</option>)}
-                    </select>
-                  </label>
-                  <label>
-                    {t('bookType')}
-                    <select value={form.type} onChange={(event) => updateField('type', event.target.value)}>
-                      {bookTypes.map((type) => <option key={type.id} value={type.id}>{t(type.labelKey)}</option>)}
-                    </select>
-                  </label>
-                  <label>
-                    {t('volumeCount')}
-                    <input
-                      value={form.volumeCount || ''}
-                      inputMode="numeric"
-                      onChange={(event) => updateField('volumeCount', sanitizePositiveIntegerInput(event.target.value))}
-                    />
-                    <small className="fieldHint">{t('volumeCountHint')}</small>
+                    {t('translator')}
+                    <input value={form.translator} onChange={(event) => updateField('translator', event.target.value)} />
                   </label>
                   <label>
                     {t('readingStatus')}
@@ -1265,44 +1450,78 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
                       {readingStatuses.map((status) => <option key={status.id} value={status.id}>{t(status.labelKey)}</option>)}
                     </select>
                   </label>
-                  {showCurrentVolume && (
-                    <CurrentVolumeInput
-                      value={form.currentVolume || ''}
-                      volumeCount={normalizedVolumeCount}
-                      onChange={(value) => updateField('currentVolume', value)}
-                      t={t}
-                      language={language}
-                    />
-                  )}
-                  <Isbn13Input
-                    value={form.isbn_13}
-                    onChange={(value) => updateField('isbn_13', value)}
-                    onBlur={() => setIsbnTouched((current) => ({ ...current, isbn13: true }))}
-                    showError={isbnTouched.isbn13 && !hasValidIsbn13}
-                    t={t}
-                  />
-                  <Isbn10Input
-                    value={form.isbn_10}
-                    onChange={(value) => updateField('isbn_10', value)}
-                    onBlur={() => setIsbnTouched((current) => ({ ...current, isbn10: true }))}
-                    showError={isbnTouched.isbn10 && !hasValidIsbn10}
-                    t={t}
-                  />
-                </div>
-                <div className="coverUpload">
-                  <span>{t('bookCover')}</span>
-                  <label className="smallUploadButton">
-                    <ImageUp size={16} />
-                    {t('uploadCover')}
-                    <input type="file" accept="image/*" onChange={handleCoverUpload} />
+                  <label>
+                    {t('mainCategory')}
+                    <select value={form.category_id} onChange={(event) => updateField('category_id', Number(event.target.value))}>
+                      {categories.map((category) => <option key={category.id} value={category.id}>{safeLocalizedName(category, language)}</option>)}
+                    </select>
                   </label>
-                  {form.cover_file_name && <small>{form.cover_file_name}</small>}
-                  {form.cover_url && <img src={form.cover_url} alt="" />}
-                  {form.cover_url && <button className="linkButton compactLink" type="button" onClick={() => setForm((current) => ({ ...current, cover_url: '', cover_file_name: '' }))}>{t('removeCover')}</button>}
+                  <div className="quickCategoryControls">
+                    <button className="linkButton compactLink" type="button" onClick={() => setShowNewCategory((value) => !value)}>
+                      <Plus size={15} /> {t('newMainCategoryButton')}
+                    </button>
+                  </div>
+                  {showNewCategory && (
+                    <label className="quickInlineField">
+                      {t('addMainCategory')}
+                      <div className="inlineAdd">
+                        <input value={newCategoryName} onChange={(event) => setNewCategoryName(event.target.value)} placeholder={t('newMainCategoryPlaceholder')} />
+                        <button className="secondaryButton" type="button" onClick={addMainCategory}><Plus size={17} /> {t('addAsMainCategory')}</button>
+                      </div>
+                    </label>
+                  )}
+                  <div className="quickVolumeControls">
+                    <button className="linkButton compactLink" type="button" onClick={() => setShowQuickVolumes((value) => !value)}>
+                      <Plus size={15} /> {t('multiVolumeBook')}
+                    </button>
+                  </div>
+                  {showQuickVolumes && (
+                    <>
+                      <label>
+                        {t('volumeCount')}
+                        <input
+                          value={form.volumeCount || ''}
+                          inputMode="numeric"
+                          onChange={(event) => updateField('volumeCount', sanitizePositiveIntegerInput(event.target.value))}
+                        />
+                        <small className="fieldHint">{t('volumeCountHint')}</small>
+                      </label>
+                      {showCurrentVolume && (
+                        <>
+                          <CurrentVolumeInput
+                            value={form.currentVolume || ''}
+                            volumeCount={normalizedVolumeCount}
+                            onChange={(value) => updateField('currentVolume', value)}
+                            t={t}
+                            language={language}
+                          />
+                          <p className="currentVolumeNotice">{t('currentlyReadingVolume')}: {formatCurrentVolume(form.currentVolume || 1, normalizedVolumeCount, language)}</p>
+                        </>
+                      )}
+                    </>
+                  )}
                 </div>
               </>
             ) : (
-              <div className="detailedSections">
+              <>
+                <div className="detailTabsPanel">
+                  <div className="formTabs" role="tablist" aria-label={t('detailedAdd')}>
+                    {detailTabs.map(([id, labelKey]) => (
+                      <button
+                        key={id}
+                        type="button"
+                        className={activeDetailTab === id ? 'active' : ''}
+                        onClick={() => setActiveDetailTab(id)}
+                      >
+                        {t(labelKey)}
+                      </button>
+                    ))}
+                  </div>
+                  <section className="tabContent">
+                    {renderDetailedTab()}
+                  </section>
+                </div>
+                <div className="detailedSections legacyHidden" aria-hidden="true">
                 <DetailSection id="basics" title={t('basicData')}>
                   <div className="formGrid">
                     <label>
@@ -1498,12 +1717,18 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
                   </div>
                 </DetailSection>
               </div>
+              </>
             )}
 
             <div className="modalActions stickyActions">
               <button className="secondaryButton" type="button" onClick={onClose}>{t('cancel')}</button>
               <button className="primaryButton" type="submit" disabled={!canSave || !hasValidDates || !hasValidIsbn || !hasValidPageCount || !hasValidVolumeCount || !hasValidCurrentVolume}><Check size={18} /> {t('saveBook')}</button>
-              {!isEditing && (
+              {!isEditing && addMode === 'quick' && (
+                <button className="secondaryButton" type="button" onClick={saveAndCloseFromQuick} disabled={!canSave || !hasValidDates || !hasValidIsbn || !hasValidPageCount || !hasValidVolumeCount || !hasValidCurrentVolume}>
+                  {t('addDetailsLater')}
+                </button>
+              )}
+              {!isEditing && addMode === 'detailed' && (
                 <button className="secondaryButton" type="button" onClick={saveAndAddAnother} disabled={!canSave || !hasValidDates || !hasValidIsbn || !hasValidPageCount || !hasValidVolumeCount || !hasValidCurrentVolume}>
                   <Plus size={18} /> {t('saveAndAddAnother')}
                 </button>
@@ -1572,7 +1797,7 @@ function BookCard({ book, language, onSelect, categories }) {
   );
 }
 
-function DetailsPanel({ book, language, timeFormat, onClose, onEdit, onStatusChange, onCurrentVolumeChange, onToggleReadingSession, onOpenFile, onFeatureMessage, categories, tags, mode = 'panel' }) {
+function DetailsPanel({ book, language, timeFormat, onClose, onEdit, onDelete, onStatusChange, onCurrentVolumeChange, onToggleReadingSession, onOpenFile, onFeatureMessage, categories, tags, mode = 'panel' }) {
   const { t } = useTranslation();
   if (!book) return null;
   const category = getCategory(categories, book.category_id);
@@ -1606,6 +1831,7 @@ function DetailsPanel({ book, language, timeFormat, onClose, onEdit, onStatusCha
       {book.translator && <p>{t('translator')}: {book.translator}</p>}
       <div className="detailActions">
         <button className="secondaryButton" type="button" onClick={() => onEdit?.(book.id)}>{t('edit')}</button>
+        <button className="secondaryButton dangerButton" type="button" onClick={() => onDelete?.(book.id)}>{t('delete')}</button>
         <button className="secondaryButton" type="button" onClick={() => onToggleReadingSession(book.id)}>
           {activeSession ? t('endSession') : t('startSession')}
         </button>
@@ -1622,13 +1848,16 @@ function DetailsPanel({ book, language, timeFormat, onClose, onEdit, onStatusCha
         </select>
       </label>
       {volumeCount > 1 && book.status === 'reading' && (
-        <CurrentVolumeInput
-          value={String(currentVolume)}
-          volumeCount={volumeCount}
-          onChange={(value) => onCurrentVolumeChange?.(book.id, value)}
-          t={t}
-          language={language}
-        />
+        <>
+          <CurrentVolumeInput
+            value={String(currentVolume)}
+            volumeCount={volumeCount}
+            onChange={(value) => onCurrentVolumeChange?.(book.id, value)}
+            t={t}
+            language={language}
+          />
+          <p className="currentVolumeNotice">{t('currentlyReadingVolume')}: {formatCurrentVolume(currentVolume, volumeCount, language)}</p>
+        </>
       )}
       {book.status === 'completed' && <RatingStars value={book.rating} disabled />}
       <dl className="detailList">
@@ -1671,7 +1900,10 @@ function DetailsPanel({ book, language, timeFormat, onClose, onEdit, onStatusCha
         <h4>{t('bookImpact')}</h4>
         <div className="impactQuestions">
           {['impactQuestion1', 'impactQuestion2', 'impactQuestion3', 'impactQuestion4', 'impactQuestion5', 'impactQuestion6'].map((key) => (
-            <span key={key}>{t(key)}</span>
+            <span key={key}>
+              <strong>{t(key)}</strong>
+              {book.impact?.[key] ? <em>{book.impact[key]}</em> : <em>-</em>}
+            </span>
           ))}
         </div>
       </section>
@@ -2034,6 +2266,15 @@ function App() {
     setToastMessage(t('bookUpdated'));
   }
 
+  function deleteBook(bookId) {
+    if (!window.confirm(t('deleteBookConfirm'))) return;
+    setBooks((current) => current.filter((book) => book.id !== bookId));
+    setSelectedBookId(null);
+    setEditingBookId(null);
+    setActivePage('library');
+    setToastMessage(t('bookDeleted'));
+  }
+
   function importBooks(importedBooks) {
     setBooks((current) => [...importedBooks, ...current]);
     if (importedBooks[0]) {
@@ -2393,6 +2634,7 @@ function App() {
               mode="page"
               onClose={() => setActivePage('library')}
               onEdit={setEditingBookId}
+              onDelete={deleteBook}
               onStatusChange={changeStatus}
               onCurrentVolumeChange={changeCurrentVolume}
               onToggleReadingSession={toggleReadingSession}
@@ -2538,6 +2780,7 @@ function App() {
             tags={tags}
             onClose={() => setSelectedBookId(null)}
             onEdit={setEditingBookId}
+            onDelete={deleteBook}
             onStatusChange={changeStatus}
             onCurrentVolumeChange={changeCurrentVolume}
             onToggleReadingSession={toggleReadingSession}
