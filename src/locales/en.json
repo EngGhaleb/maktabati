@@ -106,6 +106,7 @@
   "invalidIsbn10": "ISBN-10 must be 10 characters, with X allowed only as the final character.",
   "publisher": "Publisher",
   "publicationYear": "Publication Year",
+  "publicationDate": "Publication Date",
   "edition": "Edition",
   "purchasePrice": "Purchase Price",
   "pages": "Pages",

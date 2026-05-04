@@ -106,6 +106,7 @@
   "invalidIsbn10": "رقم ISBN-10 يجب أن يتكون من 10 خانات، ويسمح بالحرف X فقط في الخانة الأخيرة.",
   "publisher": "دار النشر",
   "publicationYear": "سنة النشر",
+  "publicationDate": "تاريخ النشر",
   "edition": "رقم الطبعة",
   "purchasePrice": "سعر الشراء",
   "pages": "عدد الصفحات",

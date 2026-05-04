@@ -176,6 +176,12 @@ function optionLabel(items, id, t) {
   return t(items.find((item) => item.id === id)?.labelKey || 'all');
 }
 
+function formatRatingOption(value, language = 'ar') {
+  const rating = Number(value);
+  if (language === 'ar') return `${rating} ${rating === 1 ? 'نجمة' : 'نجوم'}`;
+  return `${rating} star${rating === 1 ? '' : 's'}`;
+}
+
 function formatMinutes(minutes) {
   const hours = Math.floor(minutes / 60);
   const rest = minutes % 60;
@@ -187,6 +193,7 @@ function formatMinutes(minutes) {
 const minuteOptions = Array.from({ length: 12 }, (_, index) => String(index * 5).padStart(2, '0'));
 const hourOptions24 = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, '0'));
 const hourOptions12 = Array.from({ length: 12 }, (_, index) => String(index + 1));
+const ratingOptions = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5];
 
 function formatDateTime(value, language = 'ar', timeFormat = '12') {
   if (!value) return language === 'ar' ? 'غير محدد' : 'Not set';
@@ -721,11 +728,23 @@ function validateImportedBook(book, sourceRecord, existingBooks) {
   });
 
   if (!book.title || !book.author) return 'missing';
-  if (ratingRaw && !['1', '2', '3', '4', '5'].includes(ratingRaw)) return 'invalid';
+  if (ratingRaw && !isValidRatingValue(ratingRaw)) return 'invalid';
   if (isbn13Raw && !isValidIsbn13Input(book.isbn_13)) return 'invalid';
   if (isbn10Raw && !isValidIsbn10Input(book.isbn_10)) return 'invalid';
   if (duplicate) return 'duplicate';
   return 'ready';
+}
+
+function isValidRatingValue(value) {
+  const rating = Number(value);
+  return Number.isFinite(rating) && rating >= 1 && rating <= 5 && Number.isInteger(rating * 2);
+}
+
+function starFillAmount(value, star) {
+  const rating = Number(value) || 0;
+  if (rating >= star) return 1;
+  if (rating >= star - 0.5) return 0.5;
+  return 0;
 }
 
 function statusLabelKey(status) {
@@ -738,20 +757,41 @@ function statusLabelKey(status) {
 }
 
 function RatingStars({ value, onChange, disabled = false }) {
+  const [hoverValue, setHoverValue] = useState(null);
+  const displayValue = hoverValue ?? (Number(value) || 0);
+
+  function ratingFromPointer(event, star) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const isRtl = document.documentElement.dir === 'rtl';
+    const ratioFromStart = isRtl
+      ? (rect.right - event.clientX) / rect.width
+      : (event.clientX - rect.left) / rect.width;
+    return ratioFromStart <= 0.5 ? star - 0.5 : star;
+  }
+
   return (
-    <div className="stars" aria-label="rating">
-      {[1, 2, 3, 4, 5].map((star) => (
-        <button
-          key={star}
-          type="button"
-          className={star <= value ? 'star active' : 'star'}
-          disabled={disabled}
-          onClick={() => onChange?.(star)}
-          title={`${star}`}
-        >
-          <Star size={20} fill={star <= value ? 'currentColor' : 'none'} />
-        </button>
-      ))}
+    <div className="stars" aria-label="rating" onMouseLeave={() => setHoverValue(null)}>
+      {[1, 2, 3, 4, 5].map((star) => {
+        const fillAmount = starFillAmount(displayValue, star);
+        return (
+          <button
+            key={star}
+            type="button"
+            className={fillAmount ? 'star active' : 'star'}
+            disabled={disabled}
+            onClick={(event) => onChange?.(ratingFromPointer(event, star))}
+            onMouseMove={(event) => !disabled && setHoverValue(ratingFromPointer(event, star))}
+            title={`${star - 0.5} / ${star}`}
+          >
+            <span className="starVisual" aria-hidden="true">
+              <Star className="starEmpty" size={22} />
+              <span className="starFill" style={{ width: `${fillAmount * 100}%` }}>
+                <Star size={22} fill="currentColor" />
+              </span>
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -1335,6 +1375,8 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
           <label>{t('bookTitle')} *<input ref={titleInputRef} value={form.title} onChange={(event) => updateField('title', event.target.value)} /></label>
           <label>{t('author')} *<input value={form.author} onChange={(event) => updateField('author', event.target.value)} /></label>
           <label>{t('translator')}<input value={form.translator} onChange={(event) => updateField('translator', event.target.value)} /></label>
+          <Isbn13Input value={form.isbn_13} onChange={(value) => updateField('isbn_13', value)} onBlur={() => setIsbnTouched((current) => ({ ...current, isbn13: true }))} showError={isbnTouched.isbn13 && !hasValidIsbn13} t={t} />
+          <Isbn10Input value={form.isbn_10} onChange={(value) => updateField('isbn_10', value)} onBlur={() => setIsbnTouched((current) => ({ ...current, isbn10: true }))} showError={isbnTouched.isbn10 && !hasValidIsbn10} t={t} />
           {renderCategoryCreationControls()}
           <label>{t('bookType')}<select value={form.type} onChange={(event) => updateField('type', event.target.value)}>{bookTypes.map((type) => <option key={type.id} value={type.id}>{t(type.labelKey)}</option>)}</select></label>
           <label>{t('language')}<select value={form.language} onChange={(event) => updateField('language', event.target.value)}><option value="العربية">{t('arabic')}</option><option value="English">{t('english')}</option></select></label>
@@ -1373,11 +1415,9 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
     if (activeDetailTab === 'publishing') {
       return (
         <div className="formGrid">
-          <Isbn13Input value={form.isbn_13} onChange={(value) => updateField('isbn_13', value)} onBlur={() => setIsbnTouched((current) => ({ ...current, isbn13: true }))} showError={isbnTouched.isbn13 && !hasValidIsbn13} t={t} />
-          <Isbn10Input value={form.isbn_10} onChange={(value) => updateField('isbn_10', value)} onBlur={() => setIsbnTouched((current) => ({ ...current, isbn10: true }))} showError={isbnTouched.isbn10 && !hasValidIsbn10} t={t} />
           {[
             ['publisher', 'publisher'],
-            ['publication_year', 'publicationYear'],
+            ['publication_year', 'publicationDate'],
             ['edition', 'edition'],
             ['purchase_price', 'purchasePrice']
           ].map(([field, label]) => (
@@ -1473,14 +1513,16 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
                     <input value={form.author} onChange={(event) => updateField('author', event.target.value)} />
                   </label>
                   <label>
+                    {t('publisher')}
+                    <input value={form.publisher} onChange={(event) => updateField('publisher', event.target.value)} />
+                  </label>
+                  <label>
                     {t('translator')}
                     <input value={form.translator} onChange={(event) => updateField('translator', event.target.value)} />
                   </label>
                   <label>
-                    {t('readingStatus')}
-                    <select value={form.status} onChange={(event) => updateField('status', event.target.value)}>
-                      {readingStatuses.map((status) => <option key={status.id} value={status.id}>{t(status.labelKey)}</option>)}
-                    </select>
+                    {t('publicationDate')}
+                    <input type="date" value={form.publication_year || ''} onChange={(event) => updateField('publication_year', event.target.value)} />
                   </label>
                   <label>
                     {t('mainCategory')}
@@ -1502,6 +1544,44 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
                       </div>
                     </label>
                   )}
+                  <label>
+                    {t('subcategory')}
+                    <select value={form.subcategory_id} onChange={(event) => updateField('subcategory_id', Number(event.target.value))}>
+                      {subcategories.map((item) => <option key={item.id} value={item.id}>{safeLocalizedName(item, language)}</option>)}
+                    </select>
+                  </label>
+                  <div className="quickCategoryControls">
+                    <button className="linkButton compactLink" type="button" onClick={() => setShowNewSubcategory((value) => !value)}>
+                      <Plus size={15} /> {t('createSubcategory')}
+                    </button>
+                  </div>
+                  {showNewSubcategory && (
+                    <label className="quickInlineField">
+                      {t('addSubcategory')}
+                      <div className="inlineAdd">
+                        <input value={newSubcategoryName} onChange={(event) => setNewSubcategoryName(event.target.value)} placeholder={t('newSubcategoryPlaceholder')} />
+                        <button className="secondaryButton" type="button" onClick={addSubcategory}><Plus size={17} /> {t('addAsSubcategory')}</button>
+                      </div>
+                    </label>
+                  )}
+                  <label>
+                    {t('pages')}
+                    <input value={form.pageCount || ''} inputMode="numeric" onChange={(event) => updateField('pageCount', sanitizePositiveIntegerInput(event.target.value))} />
+                  </label>
+                  <label>
+                    {t('purchasePrice')}
+                    <input value={form.purchase_price || ''} onChange={(event) => updateField('purchase_price', event.target.value)} />
+                  </label>
+                  <div className="coverUpload quickCoverUpload">
+                    <span>{t('bookCover')}</span>
+                    <label className="smallUploadButton">
+                      <ImageUp size={16} />
+                      {t('uploadCover')}
+                      <input type="file" accept="image/*" onChange={handleCoverUpload} />
+                    </label>
+                    {form.cover_file_name && <small>{form.cover_file_name}</small>}
+                    {form.cover_url && <button className="linkButton compactLink" type="button" onClick={() => setForm((current) => ({ ...current, cover_url: '', cover_file_name: '' }))}>{t('removeCover')}</button>}
+                  </div>
                   <div className="quickVolumeControls">
                     <button className="linkButton compactLink" type="button" onClick={() => setShowQuickVolumes((value) => !value)}>
                       <Plus size={15} /> {t('multiVolumeBook')}
@@ -1760,11 +1840,6 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
                   {t('addDetailsLater')}
                 </button>
               )}
-              {!isEditing && addMode === 'detailed' && (
-                <button className="secondaryButton" type="button" onClick={saveAndAddAnother} disabled={!canSave || !hasValidDates || !hasValidIsbn || !hasValidPageCount || !hasValidVolumeCount || !hasValidCurrentVolume}>
-                  <Plus size={18} /> {t('saveAndAddAnother')}
-                </button>
-              )}
             </div>
             {canSave && !hasValidDates && <p className="error saveHint">{t('invalidDateTime')}</p>}
             {canSave && hasValidDates && !hasValidIsbn13 && <p className="error saveHint">{t('invalidIsbn13')}</p>}
@@ -1907,7 +1982,20 @@ function DetailsPanel({
           <p className="currentVolumeNotice">{t('currentlyReadingVolume')}: {formatCurrentVolume(currentVolume, volumeCount, language)}</p>
         </>
       )}
-      {book.status === 'completed' && <RatingStars value={book.rating} disabled />}
+      {book.status === 'completed' && (
+        <div className="detailRating">
+          <span>{t('rating')}</span>
+          <div className="ratingControls">
+            <RatingStars value={Number(book.rating)} onChange={(value) => onBookFieldChange?.(book.id, 'rating', value)} />
+            <select value={String(book.rating || '')} onChange={(event) => onBookFieldChange?.(book.id, 'rating', Number(event.target.value))}>
+              <option value="">{t('unrated')}</option>
+              {ratingOptions.map((rating) => (
+                <option key={rating} value={rating}>{formatRatingOption(rating, language)}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
       <dl className="detailList">
         <dt>{t('isbn10')}</dt><dd>{book.isbn_10 || '-'}</dd>
         <dt>{t('isbn13')}</dt><dd>{book.isbn_13 || '-'}</dd>
@@ -2817,11 +2905,9 @@ function App() {
                 <select value={filters.rating} onChange={(event) => setFilters({ ...filters, rating: event.target.value })}>
                   <option value="all">{t('rating')}: {t('all')}</option>
                   <option value="unrated">{t('unrated')}</option>
-                  <option value="1">{t('oneStar')}</option>
-                  <option value="2">{t('twoStars')}</option>
-                  <option value="3">{t('threeStars')}</option>
-                  <option value="4">{t('fourStars')}</option>
-                  <option value="5">{t('fiveStars')}</option>
+                  {ratingOptions.map((rating) => (
+                    <option key={rating} value={rating}>{formatRatingOption(rating, language)}</option>
+                  ))}
                 </select>
                 <select value={filters.type} onChange={(event) => setFilters({ ...filters, type: event.target.value })}>
                   <option value="all">{t('bookType')}: {t('all')}</option>
