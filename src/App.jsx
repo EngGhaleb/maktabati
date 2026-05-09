@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  BarChart3,
   BookOpen,
   Camera,
   ChevronDown,
@@ -11,15 +12,20 @@ import {
   ImageUp,
   FileText,
   Filter,
+  FolderTree,
   Globe2,
   Grid3X3,
+  Heart,
+  Home,
   Images,
   ListChecks,
   Map,
   Moon,
   Plus,
   Search,
+  Settings,
   Star,
+  StickyNote,
   Sun,
   Tags,
   Rows3,
@@ -38,8 +44,10 @@ import {
 
 const nowLocal = () => new Date().toISOString().slice(0, 16);
 const digitalTypes = ['pdf', 'epub', 'external'];
-const BOOKS_STORAGE_KEY = 'maktabati.books';
-const CATEGORIES_STORAGE_KEY = 'maktabati.categories';
+const LEGACY_BOOKS_STORAGE_KEY = 'maktabati.books';
+const BOOKS_STORAGE_KEY = 'maktabati.books.v1';
+const LEGACY_CATEGORIES_STORAGE_KEY = 'maktabati.categories';
+const CATEGORIES_STORAGE_KEY = 'maktabati.categories.v1';
 const TAGS_STORAGE_KEY = 'maktabati.tags';
 const LANGUAGES_STORAGE_KEY = 'maktabati.languages';
 const USER_SETTINGS_STORAGE_KEY = 'maktabati.userSettings.v1';
@@ -83,8 +91,16 @@ const csvHeaderMap = {
   author: 'author',
   'التصنيف الرئيسي': 'main_category',
   main_category: 'main_category',
+  mainCategory: 'main_category',
+  mainCategoryName: 'main_category',
+  mainCategoryId: 'category_id',
+  category_id: 'category_id',
   'التصنيف الفرعي': 'sub_category',
   sub_category: 'sub_category',
+  subCategory: 'sub_category',
+  subCategoryName: 'sub_category',
+  subCategoryId: 'subcategory_id',
+  subcategory_id: 'subcategory_id',
   'نوع الكتاب': 'book_type',
   book_type: 'book_type',
   'حالة القراءة': 'reading_status',
@@ -367,6 +383,7 @@ function makeInitialBookForm(defaultCategory, language, defaultBookType = defaul
     audio_duration: '',
     notes: '',
     favorite_quote: '',
+    collection_group: '',
     impact: {},
     created_at: '',
     started_at: '',
@@ -508,7 +525,7 @@ function CurrentVolumeInput({ value, volumeCount, onChange, t, language = 'ar' }
   );
 }
 
-function buildBookFromForm(form, existingBook = null) {
+function buildBookFromForm(form, existingBook = null, categories = []) {
   const date = nowLocal();
   const fallbackIsbn = sanitizeIsbnLookupInput(form.isbn);
   const isbn10 = sanitizeIsbn10Input(form.isbn_10 || (fallbackIsbn.length === 10 ? fallbackIsbn : ''));
@@ -516,6 +533,10 @@ function buildBookFromForm(form, existingBook = null) {
   const pageCount = normalizePositiveInteger(form.pageCount || form.pages, '');
   const volumeCount = normalizePositiveInteger(form.volumeCount, 1);
   const currentVolume = volumeCount > 1 ? clampCurrentVolume(form.currentVolume, volumeCount) : 1;
+  const category = getCategory(categories, form.category_id);
+  const subcategory = getSubcategory(categories, form.category_id, form.subcategory_id);
+  const mainCategoryName = category ? localizedName(category, 'ar') : form.mainCategoryName || existingBook?.mainCategoryName || '';
+  const subCategoryName = subcategory ? localizedName(subcategory, 'ar') : form.subCategoryName || existingBook?.subCategoryName || '';
   return {
     ...(existingBook || {}),
     ...form,
@@ -530,6 +551,10 @@ function buildBookFromForm(form, existingBook = null) {
     pages: pageCount,
     volumeCount,
     currentVolume,
+    mainCategoryId: form.category_id,
+    mainCategoryName,
+    subCategoryId: form.subcategory_id,
+    subCategoryName,
     shelf_location: form.shelf_location || [form.room && `الغرفة: ${form.room}`, form.shelf && `الرف: ${form.shelf}`, form.box && `الصندوق: ${form.box}`].filter(Boolean).join(' - '),
     status_history: existingBook?.status_history || [{ status: form.status, datetime: date }],
     reading_sessions: existingBook?.reading_sessions || [],
@@ -543,8 +568,14 @@ function buildBookFromForm(form, existingBook = null) {
 
 function makeBookFormFromBook(book, categories, fallbackCategory, language, defaultBookType = defaultType) {
   if (!book) return makeInitialBookForm(fallbackCategory, language, defaultBookType);
-  const category = getCategory(categories, book.category_id) || fallbackCategory;
-  const subcategory = getSubcategory(categories, category.id, book.subcategory_id) || category.subcategories[0];
+  const category =
+    getCategory(categories, book.category_id || book.mainCategoryId) ||
+    findCategoryByName(categories, book.mainCategoryName || book.main_category, language) ||
+    fallbackCategory;
+  const subcategory =
+    getSubcategory(categories, category.id, book.subcategory_id || book.subCategoryId) ||
+    findSubcategoryByName(category, book.subCategoryName || book.sub_category, language) ||
+    category.subcategories[0];
   return {
     ...makeInitialBookForm(category, language, defaultBookType),
     ...book,
@@ -575,12 +606,16 @@ function getActiveSession(book) {
   return book?.reading_sessions?.find((session) => session.started_at && !session.ended_at);
 }
 
+function sameId(left, right) {
+  return String(left) === String(right);
+}
+
 function getCategory(categoryList, id) {
-  return categoryList.find((category) => category.id === Number(id));
+  return categoryList.find((category) => sameId(category.id, id));
 }
 
 function getSubcategory(categoryList, categoryId, subcategoryId) {
-  return getCategory(categoryList, categoryId)?.subcategories.find((item) => item.id === Number(subcategoryId));
+  return getCategory(categoryList, categoryId)?.subcategories.find((item) => sameId(item.id, subcategoryId));
 }
 
 function safeLocalizedName(item, language) {
@@ -589,23 +624,72 @@ function safeLocalizedName(item, language) {
 
 function findCategoryByName(categoryList, value, language) {
   const needle = String(value || '').trim().toLowerCase();
-  if (!needle) return categoryList[0];
+  if (!needle) return null;
   return categoryList.find((category) =>
     [category.name_ar, category.name_en, localizedName(category, language)]
       .filter(Boolean)
       .some((name) => String(name).trim().toLowerCase() === needle)
-  ) || categoryList[0];
+  ) || null;
 }
 
 function findSubcategoryByName(category, value, language) {
   const needle = String(value || '').trim().toLowerCase();
   if (!category?.subcategories?.length) return null;
-  if (!needle) return category.subcategories[0];
+  if (!needle) return null;
   return category.subcategories.find((subcategory) =>
     [subcategory.name_ar, subcategory.name_en, localizedName(subcategory, language)]
       .filter(Boolean)
       .some((name) => String(name).trim().toLowerCase() === needle)
-  ) || category.subcategories[0];
+  ) || null;
+}
+
+function nextNumericId(items, fallback = 0) {
+  return Math.max(...items.map((item) => Number(item.id) || 0), fallback) + 1;
+}
+
+function makeDefaultSubcategory(categoryId) {
+  return {
+    id: Number(categoryId) * 100 + 1,
+    category_id: categoryId,
+    name_ar: 'غير مصنف',
+    name_en: 'Uncategorized',
+    sort_order: 1
+  };
+}
+
+function ensureCategoryInList(categoryList, name, language) {
+  const categoryName = String(name || '').trim();
+  const existing = findCategoryByName(categoryList, categoryName, language);
+  if (existing) return existing;
+  if (!categoryName) return categoryList[0];
+  const nextId = nextNumericId(categoryList);
+  const nextCategory = {
+    id: nextId,
+    name_ar: categoryName,
+    name_en: categoryName,
+    sort_order: categoryList.length + 1,
+    subcategories: [makeDefaultSubcategory(nextId)]
+  };
+  categoryList.push(nextCategory);
+  return nextCategory;
+}
+
+function ensureSubcategoryInList(category, name, language) {
+  if (!category) return null;
+  const subcategoryName = String(name || '').trim();
+  const existing = findSubcategoryByName(category, subcategoryName, language);
+  if (existing) return existing;
+  if (!subcategoryName) return category.subcategories?.[0] || null;
+  const nextId = Math.max(...(category.subcategories || []).map((item) => Number(item.id) || 0), Number(category.id) * 100) + 1;
+  const nextSubcategory = {
+    id: nextId,
+    category_id: category.id,
+    name_ar: subcategoryName,
+    name_en: subcategoryName,
+    sort_order: (category.subcategories || []).length + 1
+  };
+  category.subcategories = [...(category.subcategories || []), nextSubcategory];
+  return nextSubcategory;
 }
 
 function parseCsv(text) {
@@ -647,12 +731,30 @@ function parseCsv(text) {
 }
 
 function normalizeImportedRecord(record, categories, language) {
+  const requestedCategoryName =
+    record.main_category ||
+    record.mainCategory ||
+    record.mainCategoryName ||
+    record.category ||
+    record.category_name;
+  const requestedSubcategoryName =
+    record.sub_category ||
+    record.subCategory ||
+    record.subCategoryName ||
+    record.subcategory ||
+    record.subcategory_name;
   const category =
     getCategory(categories, record.category_id) ||
-    findCategoryByName(categories, record.main_category || record.category || record.category_name, language);
+    getCategory(categories, record.mainCategoryId) ||
+    findCategoryByName(categories, requestedCategoryName, language) ||
+    ensureCategoryInList(categories, requestedCategoryName, language) ||
+    categories[0];
   const subcategory =
     getSubcategory(categories, category.id, record.subcategory_id) ||
-    findSubcategoryByName(category, record.sub_category || record.subcategory || record.subcategory_name, language);
+    getSubcategory(categories, category.id, record.subCategoryId) ||
+    findSubcategoryByName(category, requestedSubcategoryName, language) ||
+    ensureSubcategoryInList(category, requestedSubcategoryName, language) ||
+    category.subcategories[0];
   const room = record.room ? `${record.room}`.trim() : '';
   const shelf = record.shelf ? `${record.shelf}`.trim() : '';
   const box = record.box ? `${record.box}`.trim() : '';
@@ -682,6 +784,10 @@ function normalizeImportedRecord(record, categories, language) {
     type,
     category_id: category.id,
     subcategory_id: subcategory?.id || category.subcategories[0]?.id,
+    mainCategoryId: category.id,
+    mainCategoryName: localizedName(category, 'ar'),
+    subCategoryId: subcategory?.id || category.subcategories[0]?.id,
+    subCategoryName: subcategory ? localizedName(subcategory, 'ar') : '',
     status,
     rating: status === 'completed' ? rating : 0,
     tags: [],
@@ -838,6 +944,7 @@ function ImportBooksDialog({ type, books, categories, language, onClose, onImpor
   const [error, setError] = useState('');
   const [rows, setRows] = useState([]);
   const [result, setResult] = useState('');
+  const [previewCategories, setPreviewCategories] = useState(categories);
 
   const validRows = rows.filter((row) => row.status === 'ready');
   const duplicateRows = rows.filter((row) => row.status === 'duplicate');
@@ -849,6 +956,7 @@ function ImportBooksDialog({ type, books, categories, language, onClose, onImpor
     setError('');
     setResult('');
     setRows([]);
+    setPreviewCategories(categories);
     if (!file) return;
     const extension = file.name.split('.').pop()?.toLowerCase();
     if ((type === 'csv' && extension !== 'csv') || (type === 'json' && extension !== 'json')) {
@@ -883,14 +991,16 @@ function ImportBooksDialog({ type, books, categories, language, onClose, onImpor
         }
 
         const seen = new Set();
+        const nextCategories = JSON.parse(JSON.stringify(categories));
         const preview = rawRows.map((record, index) => {
-          const book = normalizeImportedRecord(record, categories, language);
+          const book = normalizeImportedRecord(record, nextCategories, language);
           let status = validateImportedBook(book, record, books);
           const fingerprint = book.isbn_13 || book.isbn_10 || `${book.title.trim().toLowerCase()}|${book.author.trim().toLowerCase()}`;
           if (status === 'ready' && fingerprint && seen.has(fingerprint)) status = 'duplicate';
           if (fingerprint) seen.add(fingerprint);
           return { index: index + 1, source: record, book, status };
         });
+        setPreviewCategories(nextCategories);
         setRows(preview);
       } catch {
         setError(type === 'csv' ? t('csvReadError') : t('invalidJson'));
@@ -905,7 +1015,7 @@ function ImportBooksDialog({ type, books, categories, language, onClose, onImpor
       setError(t('noValidRows'));
       return;
     }
-    onImport(imported);
+    onImport(imported, previewCategories);
     const skipped = rows.length - imported.length;
     setResult(
       t('importSummary', {
@@ -970,7 +1080,7 @@ function ImportBooksDialog({ type, books, categories, language, onClose, onImpor
                       <td>{row.index}</td>
                       <td>{row.book.title || '-'}</td>
                       <td>{row.book.author || '-'}</td>
-                      <td>{safeLocalizedName(getCategory(categories, row.book.category_id), language)}</td>
+                      <td>{safeLocalizedName(getCategory(previewCategories, row.book.category_id), language)}</td>
                       <td>{optionLabel(bookTypes, row.book.type, t)}</td>
                       <td>{optionLabel(readingStatuses, row.book.status, t)}</td>
                       <td>{t(statusLabelKey(row.status))}</td>
@@ -1015,7 +1125,7 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
   const [newTagName, setNewTagName] = useState('');
   const [newLanguageName, setNewLanguageName] = useState('');
   const titleInputRef = useRef(null);
-  const defaultCategory = categories.find((category) => category.id === Number(defaultCategoryId)) || categories[0];
+  const defaultCategory = getCategory(categories, defaultCategoryId) || categories[0];
   const [form, setForm] = useState(() => makeBookFormFromBook(initialBook, categories, defaultCategory, language, defaultBookType || defaultType));
 
   const subcategories = getCategory(categories, form.category_id)?.subcategories || [];
@@ -1107,6 +1217,7 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
     const categoryName = newCategoryName.trim();
     if (!categoryName) return;
     const category = onAddCategory(categoryName);
+    if (!category) return;
     setForm((current) => ({
       ...current,
       category_id: category.id,
@@ -1119,6 +1230,10 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
   function addSubcategory() {
     const subcategoryName = newSubcategoryName.trim();
     if (!subcategoryName) return;
+    if (!form.category_id) {
+      setError(t('selectMainCategoryFirst'));
+      return;
+    }
     const subcategory = onAddSubcategory(form.category_id, subcategoryName);
     if (!subcategory) return;
     updateField('subcategory_id', subcategory.id);
@@ -1199,13 +1314,13 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
   function submit(event) {
     event.preventDefault();
     if (!validateFormBeforeSave()) return;
-    onSave(buildBookFromForm(form, initialBook));
+    onSave(buildBookFromForm(form, initialBook, categories));
     onClose();
   }
 
   function saveAndAddAnother() {
     if (!validateFormBeforeSave()) return;
-    onSave(buildBookFromForm(form), { keepOpen: true });
+    onSave(buildBookFromForm(form, null, categories), { keepOpen: true });
     setForm(makeInitialBookForm(defaultCategory, language, defaultBookType || defaultType));
     setError('');
     setSaveNotice(t('bookSavedReadyForNext'));
@@ -1221,7 +1336,7 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
 
   function saveAndCloseFromQuick() {
     if (!validateFormBeforeSave()) return;
-    onSave(buildBookFromForm(form, initialBook));
+    onSave(buildBookFromForm(form, initialBook, categories));
     onClose();
   }
 
@@ -1241,7 +1356,8 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
   }
 
   const detailTabs = [
-    ['basics', 'basicData']
+    ['basics', 'basicData'],
+    ['organizing', 'organizingTab']
   ];
 
   function renderCategoryCreationControls() {
@@ -1249,7 +1365,7 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
       <>
         <label>
           {t('mainCategory')}
-          <select value={form.category_id} onChange={(event) => updateField('category_id', Number(event.target.value))}>
+          <select value={form.category_id} onChange={(event) => updateField('category_id', event.target.value)}>
             {categories.map((category) => <option key={category.id} value={category.id}>{safeLocalizedName(category, language)}</option>)}
           </select>
           <button className="linkButton compactLink" type="button" onClick={() => setShowNewCategory((value) => !value)}>
@@ -1258,10 +1374,10 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
         </label>
         <label>
           {t('subcategory')}
-          <select value={form.subcategory_id} onChange={(event) => updateField('subcategory_id', Number(event.target.value))}>
+          <select value={form.subcategory_id} onChange={(event) => updateField('subcategory_id', event.target.value)} disabled={!form.category_id}>
             {subcategories.map((item) => <option key={item.id} value={item.id}>{safeLocalizedName(item, language)}</option>)}
           </select>
-          <button className="linkButton compactLink" type="button" onClick={() => setShowNewSubcategory((value) => !value)}>
+          <button className="linkButton compactLink" type="button" onClick={() => setShowNewSubcategory((value) => !value)} disabled={!form.category_id}>
             <Plus size={15} /> {t('createSubcategory')}
           </button>
         </label>
@@ -1281,6 +1397,7 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
               <input value={newSubcategoryName} onChange={(event) => setNewSubcategoryName(event.target.value)} placeholder={t('newSubcategoryPlaceholder')} />
               <button className="secondaryButton" type="button" onClick={addSubcategory}><Plus size={17} /> {t('addAsSubcategory')}</button>
             </div>
+            {!form.category_id && <small className="fieldHint">{t('selectMainCategoryFirst')}</small>}
           </label>
         )}
       </>
@@ -1379,6 +1496,19 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
   }
 
   function renderDetailedTab() {
+    if (activeDetailTab === 'organizing') {
+      return (
+        <div className="organizingStack">
+          <div className="formGrid">{renderCategoryCreationControls()}</div>
+          {renderTagPicker()}
+          <div className="formGrid">
+            <label>{t('collectionGroup')}<input value={form.collection_group || ''} onChange={(event) => updateField('collection_group', event.target.value)} /></label>
+            <label>{t('notes')}<textarea value={form.notes} onChange={(event) => updateField('notes', event.target.value)} /></label>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="formGrid">
         <label>{t('bookTitle')} *<input ref={titleInputRef} value={form.title} onChange={(event) => updateField('title', event.target.value)} /></label>
@@ -1391,7 +1521,6 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
         <label>{t('edition')}<input value={form.edition || ''} onChange={(event) => updateField('edition', event.target.value)} /></label>
         <label>{t('pages')}<input value={form.pageCount || ''} inputMode="numeric" onChange={(event) => updateField('pageCount', sanitizePositiveIntegerInput(event.target.value))} /></label>
         <label>{t('purchasePrice')}<input value={form.purchase_price || ''} onChange={(event) => updateField('purchase_price', event.target.value)} /></label>
-        {renderCategoryCreationControls()}
         <label>{t('bookType')}<select value={form.type} onChange={(event) => updateField('type', event.target.value)}>{bookTypes.map((type) => <option key={type.id} value={type.id}>{t(type.labelKey)}</option>)}</select></label>
         <label>
           {t('language')}
@@ -1422,9 +1551,6 @@ function AddBookModal({ onClose, onSave, language, timeFormat, categories, tags,
             </div>
           </label>
         )}
-        <div className="fullSpanField">
-          {renderTagPicker()}
-        </div>
       </div>
     );
   }
@@ -1923,160 +2049,199 @@ function DetailsPanel({
   mode = 'panel'
 }) {
   const { t } = useTranslation();
+  const [activeDetailsTab, setActiveDetailsTab] = useState('overview');
   if (!book) return null;
-  const category = getCategory(categories, book.category_id);
-  const subcategory = getSubcategory(categories, book.category_id, book.subcategory_id);
-  const selectedTags = tags.filter((tag) => book.tags.includes(tag.id));
-  const minutes = book.reading_sessions.reduce((sum, item) => sum + item.duration_minutes, 0);
-  const average = book.reading_sessions.length ? Math.round(minutes / book.reading_sessions.length) : 0;
-  const last = book.reading_sessions.at(-1);
+  const category = getCategory(categories, book.category_id || book.mainCategoryId);
+  const subcategory = getSubcategory(categories, category?.id, book.subcategory_id || book.subCategoryId);
+  const selectedTags = tags.filter((tag) => (book.tags || []).includes(tag.id));
+  const readingSessions = book.reading_sessions || [];
+  const minutes = readingSessions.reduce((sum, item) => sum + item.duration_minutes, 0);
+  const average = readingSessions.length ? Math.round(minutes / readingSessions.length) : 0;
+  const last = readingSessions.at(-1);
   const activeSession = getActiveSession(book);
   const pageCount = normalizePositiveInteger(book.pageCount || book.pages, '');
   const volumeCount = normalizePositiveInteger(book.volumeCount, 1);
   const currentVolume = clampCurrentVolume(book.currentVolume, volumeCount);
+  const hasLocation = Boolean(book.shelf_location || book.room || book.shelf || book.box || book.file_url);
+  const hasPublishingData = Boolean(book.publisher || book.publication_year || book.edition || book.isbn_13 || book.isbn_10 || book.purchase_price);
+  const hasReadingData = Boolean(book.status || book.started_at || book.finished_at || minutes || volumeCount > 1 || (book.status === 'completed' && book.rating));
+  const hasOverviewData = Boolean(book.description || book.notes || book.favorite_quote);
+  const hasOrganizationData = Boolean(category || subcategory || selectedTags.length || book.collection_group || hasLocation);
+  const quickFacts = [
+    [t('bookType'), optionLabel(bookTypes, book.type, t)],
+    pageCount ? [t('pages'), pageCount] : null,
+    volumeCount > 1 ? [t('volumeCount'), formatVolumeCount(volumeCount, language)] : null,
+    volumeCount > 1 && book.status === 'reading' ? [t('currentVolume'), formatCurrentVolume(currentVolume, volumeCount, language)] : null,
+    book.translator ? [t('translator'), book.translator] : null,
+    book.status === 'completed' && book.rating ? [t('rating'), formatRatingOption(book.rating, language)] : null,
+    minutes ? [t('totalReadingTime'), formatMinutes(minutes)] : null
+  ].filter(Boolean);
+  const detailTabs = [
+    ['overview', 'overviewTab'],
+    ['reading', 'readingTab'],
+    ['publishing', 'publishTab'],
+    ['organizing', 'organizingTab']
+  ];
+
+  function renderFactList(items, emptyMessage) {
+    const visibleItems = items.filter(([, value]) => value);
+    if (!visibleItems.length) return <p className="emptyMiniState">{emptyMessage}</p>;
+    return (
+      <dl className="bookProfileList">
+        {visibleItems.map(([label, value]) => (
+          <React.Fragment key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </React.Fragment>
+        ))}
+      </dl>
+    );
+  }
+
+  function renderDetailsTab() {
+    if (activeDetailsTab === 'overview') {
+      if (!hasOverviewData) return <p className="emptyMiniState">{t('emptyOverview')}</p>;
+      return (
+        <div className="bookProfileTextBlocks">
+          {book.description && <section><h4>{t('description')}</h4><p>{book.description}</p></section>}
+          {book.notes && <section><h4>{t('notes')}</h4><p>{book.notes}</p></section>}
+          {book.favorite_quote && <section><h4>{t('favoriteQuote')}</h4><blockquote>{book.favorite_quote}</blockquote></section>}
+        </div>
+      );
+    }
+
+    if (activeDetailsTab === 'reading') {
+      if (!hasReadingData) return <p className="emptyMiniState">{t('emptyReadingData')}</p>;
+      return (
+        <div className="bookProfileTextBlocks">
+          {renderFactList([
+            [t('readingStatus'), optionLabel(readingStatuses, book.status, t)],
+            [t('startedAt'), book.started_at ? formatDateTime(book.started_at, language, timeFormat) : ''],
+            [t('finishedAt'), book.finished_at ? formatDateTime(book.finished_at, language, timeFormat) : ''],
+            [t('totalReadingTime'), minutes ? formatMinutes(minutes) : ''],
+            [t('sessionsCount'), readingSessions.length ? readingSessions.length : ''],
+            [t('averageSession'), average ? formatMinutes(average) : ''],
+            [t('lastSession'), last ? formatDateTime(last.ended_at || last.started_at, language, timeFormat) : ''],
+            [t('volumeCount'), volumeCount > 1 ? volumeCount : ''],
+            [t('currentVolume'), volumeCount > 1 && book.status === 'reading' ? formatCurrentVolume(currentVolume, volumeCount, language) : ''],
+            [t('rating'), book.status === 'completed' && book.rating ? formatRatingOption(book.rating, language) : '']
+          ], t('emptyReadingData'))}
+          {book.status === 'completed' && (
+            <label className="profileInlineControl">
+              {t('rating')}
+              <select value={String(book.rating || '')} onChange={(event) => onBookFieldChange?.(book.id, 'rating', Number(event.target.value))}>
+                <option value="">{t('unrated')}</option>
+                {ratingOptions.map((rating) => <option key={rating} value={rating}>{formatRatingOption(rating, language)}</option>)}
+              </select>
+            </label>
+          )}
+          {volumeCount > 1 && book.status === 'reading' && (
+            <CurrentVolumeInput
+              value={String(currentVolume)}
+              volumeCount={volumeCount}
+              onChange={(value) => onCurrentVolumeChange?.(book.id, value)}
+              t={t}
+              language={language}
+            />
+          )}
+        </div>
+      );
+    }
+
+    if (activeDetailsTab === 'publishing') {
+      return renderFactList([
+        [t('publisher'), book.publisher],
+        [t('publicationDate'), book.publication_year],
+        [t('edition'), book.edition],
+        [t('isbn13'), book.isbn_13],
+        [t('isbn10'), book.isbn_10],
+        [t('purchasePrice'), book.purchase_price]
+      ], t('emptyPublishingData'));
+    }
+
+    return (
+      <div className="bookProfileTextBlocks">
+        {hasOrganizationData ? (
+          <>
+            {renderFactList([
+              [t('mainCategory'), category ? safeLocalizedName(category, language) : ''],
+              [t('subcategory'), subcategory ? safeLocalizedName(subcategory, language) : ''],
+              [t('collectionGroup'), book.collection_group],
+              [book.type === 'paper' ? t('shelfLocation') : t('fileUrl'), book.shelf_location || book.file_url],
+              [t('room'), book.room],
+              [t('shelf'), book.shelf],
+              [t('box'), book.box]
+            ], t('emptyOrganizationData'))}
+            {!!selectedTags.length && (
+              <section>
+                <h4>{t('tags')}</h4>
+                <div className="chips">{selectedTags.map((tag) => <span className="chip" key={tag.id}>{safeLocalizedName(tag, language)}</span>)}</div>
+              </section>
+            )}
+          </>
+        ) : (
+          <p className="emptyMiniState">{t('emptyOrganizationData')}</p>
+        )}
+      </div>
+    );
+  }
 
   return (
     <aside className={mode === 'page' ? 'detailsPanel bookDetailsPage' : 'detailsPanel'}>
-      <div className="detailsHeader">
+      <div className="detailsHeader bookProfileTopbar">
         <button className="iconButton" type="button" onClick={onClose} title={t('cancel')}>
           {mode === 'page' ? <ArrowRight size={20} /> : <X size={20} />}
         </button>
-        <h2>{mode === 'page' ? book.title : t('details')}</h2>
+        <h2>{mode === 'page' ? t('bookProfile') : t('details')}</h2>
       </div>
-      <div className="detailCover">
-        {book.cover_url ? (
-          <img src={book.cover_url} alt="" />
-        ) : (
-          <CoverPlaceholder title={book.title} author={book.author} label={t('addCover')} fallbackTitle={t('appName')} />
-        )}
-      </div>
-      <h3>{book.title}</h3>
-      <p className="muted">{book.author}</p>
-      {book.translator && <p>{t('translator')}: {book.translator}</p>}
-      <div className="detailActions">
-        <button className="secondaryButton" type="button" onClick={() => onEdit?.(book.id)}>{t('edit')}</button>
-        <button className="secondaryButton dangerButton" type="button" onClick={() => onDelete?.(book.id)}>{t('delete')}</button>
-        <button className="secondaryButton" type="button" onClick={() => onToggleReadingSession(book.id)}>
-          {activeSession ? t('endSession') : t('startSession')}
-        </button>
-        {book.file_url && (
-          <button className="secondaryButton" type="button" onClick={() => onOpenFile?.(book)}>
-            {t('openFile')}
-          </button>
-        )}
-      </div>
-      <label className="statusSelect">
-        {t('readingStatus')}
-        <select value={book.status} onChange={(event) => onStatusChange(book.id, event.target.value)}>
-          {readingStatuses.map((status) => <option key={status.id} value={status.id}>{t(status.labelKey)}</option>)}
-        </select>
-      </label>
-      <div className="detailsGrid readingDetailsGrid">
-        {book.status !== 'not_started' && (
-          <DateInput
-            label={t('startedAt')}
-            value={book.started_at}
-            onChange={(value) => onBookFieldChange?.(book.id, 'started_at', value)}
-            t={t}
-            timeFormat={timeFormat}
-          />
-        )}
-        {book.status === 'completed' && (
-          <DateInput
-            label={t('finishedAt')}
-            value={book.finished_at}
-            onChange={(value) => onBookFieldChange?.(book.id, 'finished_at', value)}
-            t={t}
-            timeFormat={timeFormat}
-          />
-        )}
-      </div>
-      {volumeCount > 1 && book.status === 'reading' && (
-        <>
-          <CurrentVolumeInput
-            value={String(currentVolume)}
-            volumeCount={volumeCount}
-            onChange={(value) => onCurrentVolumeChange?.(book.id, value)}
-            t={t}
-            language={language}
-          />
-          <p className="currentVolumeNotice">{t('currentlyReadingVolume')}: {formatCurrentVolume(currentVolume, volumeCount, language)}</p>
-        </>
-      )}
-      {book.status === 'completed' && (
-        <div className="detailRating">
-          <span>{t('rating')}</span>
-          <div className="ratingControls">
-            <RatingStars value={Number(book.rating)} onChange={(value) => onBookFieldChange?.(book.id, 'rating', value)} />
-            <select value={String(book.rating || '')} onChange={(event) => onBookFieldChange?.(book.id, 'rating', Number(event.target.value))}>
-              <option value="">{t('unrated')}</option>
-              {ratingOptions.map((rating) => (
-                <option key={rating} value={rating}>{formatRatingOption(rating, language)}</option>
-              ))}
-            </select>
+
+      <section className="bookProfileHero">
+        <div className="detailCover profileCover">
+          {book.cover_url ? (
+            <img src={book.cover_url} alt="" />
+          ) : (
+            <CoverPlaceholder title={book.title} author={book.author} label={t('addCover')} fallbackTitle={t('appName')} />
+          )}
+        </div>
+        <div className="bookProfileIdentity">
+          <span className={`statusBadge status-${book.status}`}>{optionLabel(readingStatuses, book.status, t)}</span>
+          <h3 className={isMostlyLatin(book.title) ? 'latinText' : ''} dir={isMostlyLatin(book.title) ? 'ltr' : undefined}>{book.title}</h3>
+          <p className={isMostlyLatin(book.author) ? 'latinText muted' : 'muted'} dir={isMostlyLatin(book.author) ? 'ltr' : undefined}>{book.author}</p>
+          <div className="profileCategories">
+            {category && <span>{safeLocalizedName(category, language)}</span>}
+            {subcategory && <span>{safeLocalizedName(subcategory, language)}</span>}
+          </div>
+          <div className="detailActions profileActions">
+            <button className="secondaryButton" type="button" onClick={() => onEdit?.(book.id)}>{t('edit')}</button>
+            <button className="secondaryButton dangerButton" type="button" onClick={() => onDelete?.(book.id)}>{t('delete')}</button>
+            <button className="primaryButton" type="button" onClick={() => onToggleReadingSession(book.id)}>
+              {activeSession ? t('endSession') : t('startSession')}
+            </button>
+            {book.file_url && <button className="secondaryButton" type="button" onClick={() => onOpenFile?.(book)}>{t('openFile')}</button>}
           </div>
         </div>
-      )}
-      <dl className="detailList">
-        <dt>{t('isbn10')}</dt><dd>{book.isbn_10 || '-'}</dd>
-        <dt>{t('isbn13')}</dt><dd>{book.isbn_13 || '-'}</dd>
-        <dt>{t('bookType')}</dt><dd>{optionLabel(bookTypes, book.type, t)}</dd>
-        <dt>{t('mainCategory')}</dt><dd>{safeLocalizedName(category, language)}</dd>
-        <dt>{t('subcategory')}</dt><dd>{safeLocalizedName(subcategory, language)}</dd>
-        {pageCount && <><dt>{t('pages')}</dt><dd>{pageCount}</dd></>}
-        {volumeCount > 1 && <><dt>{t('volumeCount')}</dt><dd>{volumeCount}</dd></>}
-        {volumeCount > 1 && book.status === 'reading' && <><dt>{t('currentVolume')}</dt><dd>{formatCurrentVolume(currentVolume, volumeCount, language)}</dd></>}
-        <dt>{book.type === 'paper' ? t('shelfLocation') : t('fileUrl')}</dt><dd>{book.shelf_location || book.file_url || '-'}</dd>
-        <dt>{t('startedAt')}</dt><dd>{formatDateTime(book.started_at, language, timeFormat)}</dd>
-        <dt>{t('finishedAt')}</dt><dd>{formatDateTime(book.finished_at, language, timeFormat)}</dd>
-        <dt>{t('addedAt')}</dt><dd>{formatDateTime(book.created_at, language, timeFormat)}</dd>
-      </dl>
-      <section>
-        <h4>{t('tags')}</h4>
-        <div className="chips">{selectedTags.map((tag) => <span className="chip" key={tag.id}>{safeLocalizedName(tag, language)}</span>)}</div>
       </section>
-      <section>
-        <h4>{t('readingSessions')}</h4>
-        <div className="metricsCompact">
-          <span>{t('totalReadingTime')}: {formatMinutes(minutes)}</span>
-          <span>{t('sessionsCount')}: {book.reading_sessions.length}</span>
-          <span>{t('averageSession')}: {formatMinutes(average)}</span>
-          <span>{t('lastSession')}: {formatDateTime(last?.ended_at || last?.started_at, language, timeFormat)}</span>
-          {activeSession && <span>{t('activeSession')}: {formatDateTime(activeSession.started_at, language, timeFormat)}</span>}
-        </div>
-      </section>
-      <section>
-        <h4>{t('notes')}</h4>
-        <textarea
-          className="detailTextarea"
-          value={book.notes || ''}
-          onChange={(event) => onBookFieldChange?.(book.id, 'notes', event.target.value)}
-          placeholder={t('notes')}
-        />
-      </section>
-      <section>
-        <h4>{t('favoriteQuote')}</h4>
-        <textarea
-          className="detailTextarea quoteTextarea"
-          value={book.favorite_quote || ''}
-          onChange={(event) => onBookFieldChange?.(book.id, 'favorite_quote', event.target.value)}
-          placeholder={t('favoriteQuote')}
-        />
-      </section>
-      <section>
-        <h4>{t('bookImpact')}</h4>
-        <div className="impactQuestions">
-          {['impactQuestion1', 'impactQuestion2', 'impactQuestion3', 'impactQuestion4', 'impactQuestion5', 'impactQuestion6'].map((key) => (
-            <span key={key}>
-              <strong>{t(key)}</strong>
-              <textarea
-                className="detailTextarea"
-                value={book.impact?.[key] || ''}
-                onChange={(event) => onBookImpactChange?.(book.id, key, event.target.value)}
-              />
-            </span>
+
+      {!!quickFacts.length && (
+        <section className="quickFacts">
+          {quickFacts.map(([label, value]) => (
+            <div className="quickFact" key={label}>
+              <span>{label}</span>
+              <strong>{value}</strong>
+            </div>
           ))}
-        </div>
+        </section>
+      )}
+
+      <div className="detailsTabs" role="tablist" aria-label={t('details')}>
+        {detailTabs.map(([id, labelKey]) => (
+          <button key={id} type="button" className={activeDetailsTab === id ? 'active' : ''} onClick={() => setActiveDetailsTab(id)}>
+            {t(labelKey)}
+          </button>
+        ))}
+      </div>
+      <section className="bookProfileTab">
+        {renderDetailsTab()}
       </section>
     </aside>
   );
@@ -2240,6 +2405,133 @@ function SettingsDialog({
   );
 }
 
+function HomeDashboard({
+  books,
+  stats,
+  userName,
+  language,
+  timeFormat,
+  categories,
+  onOpenBook,
+  onAddBook,
+  onImportBackup,
+  onExportBackup,
+  onGoLibrary
+}) {
+  const { t } = useTranslation();
+  const readingBooks = books.filter((book) => book.status === 'reading').slice(0, 4);
+  const recentBooks = [...books]
+    .sort((a, b) => {
+      const left = new Date(a.created_at || a.updated_at || 0).getTime() || 0;
+      const right = new Date(b.created_at || b.updated_at || 0).getTime() || 0;
+      return right - left;
+    })
+    .slice(0, 8);
+
+  function bookReadingTime(book) {
+    const minutes = (book.reading_sessions || []).reduce((sum, session) => sum + (Number(session.duration_minutes) || 0), 0);
+    return minutes ? formatMinutes(minutes) : '';
+  }
+
+  return (
+    <section className="homeDashboard">
+      <section className="homeHero">
+        <div>
+          <span className="eyebrow">{t('home')}</span>
+          <h2>{t('welcomeUser', { name: userName || t('guestUser') })}</h2>
+          <p>{t('homeSubtitle', { count: books.length })}</p>
+        </div>
+        <div className="homeHeroMark">
+          <LogoMark />
+        </div>
+      </section>
+
+      <section className="homeStatsGrid">
+        {[
+          [t('booksCount'), stats.total],
+          [t('completedBooks'), stats.completed],
+          [t('currentlyReadingBooks'), stats.reading],
+          [t('totalPages'), stats.pages],
+          [t('totalReadingHours'), stats.hours]
+        ].map(([label, value]) => (
+          <div className="homeStatCard" key={label}>
+            <strong>{value || 0}</strong>
+            <span>{label}</span>
+          </div>
+        ))}
+      </section>
+
+      <section className="homeSection">
+        <div className="homeSectionHeader">
+          <h3>{t('readingNow')}</h3>
+          <button type="button" className="linkButton" onClick={onGoLibrary}>{t('viewAll')}</button>
+        </div>
+        {readingBooks.length ? (
+          <div className="readingNowGrid">
+            {readingBooks.map((book) => {
+              const volumeCount = normalizePositiveInteger(book.volumeCount, 1);
+              const currentVolume = clampCurrentVolume(book.currentVolume, volumeCount);
+              const category = getCategory(categories, book.category_id || book.mainCategoryId);
+              return (
+                <button className="readingNowCard" key={book.id} type="button" onClick={() => onOpenBook(book)}>
+                  <div className="miniCover">
+                    {book.cover_url ? <img src={book.cover_url} alt="" /> : <CoverPlaceholder title={book.title} author={book.author} fallbackTitle={t('appName')} />}
+                  </div>
+                  <div>
+                    <h4 className={isMostlyLatin(book.title) ? 'latinText' : ''} dir={isMostlyLatin(book.title) ? 'ltr' : undefined}>{book.title}</h4>
+                    <p className={isMostlyLatin(book.author) ? 'latinText' : ''} dir={isMostlyLatin(book.author) ? 'ltr' : undefined}>{book.author}</p>
+                    <div className="homeBookMeta">
+                      {category && <span>{safeLocalizedName(category, language)}</span>}
+                      {volumeCount > 1 && <span>{formatCurrentVolume(currentVolume, volumeCount, language)}</span>}
+                      {bookReadingTime(book) && <span>{bookReadingTime(book)}</span>}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="homeEmptyState">{t('noReadingNow')}</p>
+        )}
+      </section>
+
+      <section className="homeSection">
+        <div className="homeSectionHeader">
+          <h3>{t('recentlyAddedBooks')}</h3>
+          <button type="button" className="linkButton" onClick={onGoLibrary}>{t('goToLibrary')}</button>
+        </div>
+        {recentBooks.length ? (
+          <div className="recentBooksGrid">
+            {recentBooks.map((book) => (
+              <button className="recentBookItem" key={book.id} type="button" onClick={() => onOpenBook(book)}>
+                <div className="miniCover compact">
+                  {book.cover_url ? <img src={book.cover_url} alt="" /> : <CoverPlaceholder title={book.title} author={book.author} fallbackTitle={t('appName')} />}
+                </div>
+                <div>
+                  <strong className={isMostlyLatin(book.title) ? 'latinText' : ''} dir={isMostlyLatin(book.title) ? 'ltr' : undefined}>{book.title}</strong>
+                  <span className={isMostlyLatin(book.author) ? 'latinText' : ''} dir={isMostlyLatin(book.author) ? 'ltr' : undefined}>{book.author}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="homeEmptyState">{t('noBooks')}</p>
+        )}
+      </section>
+
+      <section className="homeQuickActions">
+        <button type="button" className="primaryButton" onClick={onAddBook}><Plus size={18} /> {t('addBook')}</button>
+        <label className="secondaryButton quickActionUpload">
+          <Download size={18} /> {t('importBackupJson')}
+          <input type="file" accept="application/json,.json" onChange={onImportBackup} />
+        </label>
+        <button type="button" className="secondaryButton" onClick={onExportBackup}><Download size={18} /> {t('exportBackupJson')}</button>
+        <button type="button" className="secondaryButton" onClick={onGoLibrary}><BookOpen size={18} /> {t('goToLibrary')}</button>
+      </section>
+    </section>
+  );
+}
+
 function App() {
   const { t, i18n } = useTranslation();
   const accountMenuRef = useRef(null);
@@ -2266,8 +2558,10 @@ function App() {
       ? resolveThemePreference(userSettings.themePreference)
       : resolveThemePreference(userSettings.themePreference || localStorage.getItem('maktabati.theme') || 'light')
   );
-  const [books, setBooks] = useState(() => readStoredJson(BOOKS_STORAGE_KEY, sampleBooks));
-  const [categories, setCategories] = useState(() => readStoredJson(CATEGORIES_STORAGE_KEY, initialCategories));
+  const [books, setBooks] = useState(() => readStoredJson(BOOKS_STORAGE_KEY, readStoredJson(LEGACY_BOOKS_STORAGE_KEY, sampleBooks)));
+  const [categories, setCategories] = useState(() =>
+    readStoredJson(CATEGORIES_STORAGE_KEY, readStoredJson(LEGACY_CATEGORIES_STORAGE_KEY, initialCategories))
+  );
   const [tags, setTags] = useState(() => readStoredJson(TAGS_STORAGE_KEY, initialTags));
   const [languageOptions, setLanguageOptions] = useState(() => readStoredJson(LANGUAGES_STORAGE_KEY, ['العربية', 'English']));
   const [query, setQuery] = useState('');
@@ -2291,7 +2585,7 @@ function App() {
   const [toastMessage, setToastMessage] = useState('');
   const [selectedBookId, setSelectedBookId] = useState(null);
   const [editingBookId, setEditingBookId] = useState(null);
-  const [activePage, setActivePage] = useState('library');
+  const [activePage, setActivePage] = useState('home');
   const [libraryScope, setLibraryScope] = useState('all');
 
   useEffect(() => {
@@ -2355,7 +2649,7 @@ function App() {
       if (needle && !text.includes(needle)) return false;
       if (libraryScope === 'currentYear' && getBookYear(book) !== currentYear) return false;
       if (filters.type !== 'all' && book.type !== filters.type) return false;
-      if (filters.category !== 'all' && book.category_id !== Number(filters.category)) return false;
+      if (filters.category !== 'all' && !sameId(book.category_id || book.mainCategoryId, filters.category)) return false;
       if (filters.status !== 'all' && book.status !== filters.status) return false;
       if (filters.flag === 'paperOnly' && book.type !== 'paper') return false;
       if (filters.flag === 'digitalOnly' && !digitalTypes.includes(book.type)) return false;
@@ -2374,12 +2668,25 @@ function App() {
 
   const analytics = useMemo(() => {
     const completed = books.filter((book) => book.status === 'completed');
-    const minutes = books.flatMap((book) => book.reading_sessions).reduce((sum, item) => sum + item.duration_minutes, 0);
+    const minutes = books.flatMap((book) => book.reading_sessions || []).reduce((sum, item) => sum + (Number(item.duration_minutes) || 0), 0);
     return {
       total: books.length,
       completed: completed.length,
       hours: Math.round(minutes / 60),
       completion: books.length ? Math.round((completed.length / books.length) * 100) : 0
+    };
+  }, [books]);
+
+  const homeStats = useMemo(() => {
+    const minutes = books
+      .flatMap((book) => book.reading_sessions || [])
+      .reduce((sum, item) => sum + (Number(item.duration_minutes) || 0), 0);
+    return {
+      total: books.length,
+      completed: books.filter((book) => book.status === 'completed').length,
+      reading: books.filter((book) => book.status === 'reading').length,
+      pages: books.reduce((sum, book) => sum + (Number(book.pageCount || book.pages) || 0), 0),
+      hours: Math.round(minutes / 60)
     };
   }, [books]);
 
@@ -2454,7 +2761,8 @@ function App() {
     setToastMessage(t('bookDeleted'));
   }
 
-  function importBooks(importedBooks) {
+  function importBooks(importedBooks, nextCategories = null) {
+    if (Array.isArray(nextCategories)) setCategories(nextCategories);
     setBooks((current) => [...importedBooks, ...current]);
     if (importedBooks[0]) {
       setSelectedBookId(importedBooks[0].id);
@@ -2468,10 +2776,17 @@ function App() {
   }
 
   function goHome() {
-    setActivePage('library');
+    setActivePage('home');
     setLibraryScope('all');
     setSelectedBookId(null);
     setEditingBookId(null);
+  }
+
+  function goLibrary(nextFilters = null) {
+    setActivePage('library');
+    setSelectedBookId(null);
+    setEditingBookId(null);
+    if (nextFilters) setFilters((current) => ({ ...current, ...nextFilters }));
   }
 
   async function openBookFile(book) {
@@ -2490,40 +2805,40 @@ function App() {
   }
 
   function addMainCategory(name) {
-    const nextId = Math.max(...categories.map((category) => category.id)) + 1;
+    const categoryName = String(name || '').trim();
+    if (!categoryName) return null;
+    const existing = findCategoryByName(categories, categoryName, language);
+    if (existing) return existing;
+    const nextId = nextNumericId(categories);
     const nextCategory = {
       id: nextId,
-      name_ar: name,
-      name_en: name,
-      sort_order: nextId,
-      subcategories: [
-        {
-          id: nextId * 100 + 1,
-          category_id: nextId,
-          name_ar: 'غير مصنّف',
-          name_en: 'Uncategorized',
-          sort_order: 1
-        }
-      ]
+      name_ar: categoryName,
+      name_en: categoryName,
+      sort_order: categories.length + 1,
+      subcategories: [makeDefaultSubcategory(nextId)]
     };
     setCategories((current) => [...current, nextCategory]);
     return nextCategory;
   }
 
   function addSubcategory(categoryId, name) {
-    const category = categories.find((item) => item.id === Number(categoryId));
+    const subcategoryName = String(name || '').trim();
+    if (!subcategoryName) return null;
+    const category = getCategory(categories, categoryId);
     if (!category) return null;
-    const maxSubcategoryId = Math.max(...category.subcategories.map((item) => item.id), category.id * 100);
+    const existing = findSubcategoryByName(category, subcategoryName, language);
+    if (existing) return existing;
+    const maxSubcategoryId = Math.max(...category.subcategories.map((item) => Number(item.id) || 0), Number(category.id) * 100);
     const nextSubcategory = {
       id: maxSubcategoryId + 1,
       category_id: category.id,
-      name_ar: name,
-      name_en: name,
+      name_ar: subcategoryName,
+      name_en: subcategoryName,
       sort_order: category.subcategories.length + 1
     };
     setCategories((current) =>
       current.map((item) =>
-        item.id === category.id
+        sameId(item.id, category.id)
           ? { ...item, subcategories: [...item.subcategories, nextSubcategory] }
           : item
       )
@@ -2648,13 +2963,25 @@ function App() {
   }
 
   function exportJson() {
-    const blob = new Blob([JSON.stringify(books, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify(books.map(enrichBookForExport), null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
     link.download = 'maktabati-books.json';
     link.click();
     URL.revokeObjectURL(url);
+  }
+
+  function enrichBookForExport(book) {
+    const category = getCategory(categories, book.category_id || book.mainCategoryId);
+    const subcategory = getSubcategory(categories, category?.id, book.subcategory_id || book.subCategoryId);
+    return {
+      ...book,
+      mainCategoryId: category?.id || book.mainCategoryId || book.category_id || '',
+      mainCategoryName: category ? localizedName(category, 'ar') : book.mainCategoryName || '',
+      subCategoryId: subcategory?.id || book.subCategoryId || book.subcategory_id || '',
+      subCategoryName: subcategory ? localizedName(subcategory, 'ar') : book.subCategoryName || ''
+    };
   }
 
   function exportBackupJson() {
@@ -2739,8 +3066,11 @@ function App() {
   }
 
   function exportCsv() {
-    const header = ['title', 'author', 'translator', 'isbn_13', 'isbn_10', 'isbn13', 'isbn10', 'type', 'status', 'rating', 'pageCount', 'volumeCount', 'currentVolume'];
-    const rows = books.map((book) => header.map((key) => `"${String(book[key] ?? '').replaceAll('"', '""')}"`).join(','));
+    const header = ['title', 'author', 'translator', 'mainCategoryId', 'mainCategoryName', 'subCategoryId', 'subCategoryName', 'isbn_13', 'isbn_10', 'isbn13', 'isbn10', 'type', 'status', 'rating', 'pageCount', 'volumeCount', 'currentVolume'];
+    const rows = books.map((book) => {
+      const record = enrichBookForExport(book);
+      return header.map((key) => `"${String(record[key] ?? '').replaceAll('"', '""')}"`).join(',');
+    });
     const blob = new Blob([[header.join(','), ...rows].join('\n')], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -2832,8 +3162,36 @@ function App() {
           <button type="button" onClick={() => setToastMessage('')}><X size={15} /></button>
         </div>
       )}
+      {soonMessage && (
+        <div className="soonNotice globalNotice">
+          <span>{soonMessage}</span>
+          <button type="button" onClick={() => setSoonMessage('')}><X size={15} /></button>
+        </div>
+      )}
 
-      <main className={activePage === 'library' && !selectedBook ? 'layout noDetailsLayout' : 'layout'}>
+      <main className={`layout appMainLayout ${activePage !== 'library' || !selectedBook ? 'noDetailsLayout' : ''}`}>
+        <aside className="sideNavigation" aria-label={t('navigation')}>
+          {[
+            ['home', Home, 'home', () => goHome()],
+            ['library', BookOpen, 'myLibrary', () => goLibrary({ status: 'all', type: 'all', rating: 'all', flag: 'all' })],
+            ['reading', Clock3, 'readingNow', () => goLibrary({ status: 'reading', type: 'all', rating: 'all', flag: 'all' })],
+            ['favorites', Heart, 'favorites', () => setSoonMessage(t('favoritesSoonMessage'))],
+            ['categories', FolderTree, 'categoriesNav', () => setSoonMessage(t('categoriesSoonMessage'))],
+            ['analytics', BarChart3, 'analytics', () => setSoonMessage(t('analyticsSoonMessage'))],
+            ['digital', FileText, 'digitalBooks', () => goLibrary({ type: 'all', status: 'all', rating: 'all', flag: 'digitalOnly' })],
+            ['notes', StickyNote, 'notesNav', () => setSoonMessage(t('notesSoonMessage'))],
+            ['settings', Settings, 'settings', () => setShowSettings(true)]
+          ].map(([id, Icon, labelKey, action]) => (
+            <button
+              key={id}
+              type="button"
+              className={(id === 'home' && activePage === 'home') || (id === 'library' && activePage === 'library') ? 'active' : ''}
+              onClick={action}
+            >
+              <Icon size={17} /> {t(labelKey)}
+            </button>
+          ))}
+        </aside>
         <section className="mainColumn">
           {activePage === 'details' && selectedBook ? (
             <DetailsPanel
@@ -2854,6 +3212,22 @@ function App() {
               onOpenFile={openBookFile}
               onFeatureMessage={setSoonMessage}
             />
+          ) : activePage === 'home' ? (
+            <>
+              <HomeDashboard
+                books={books}
+                stats={homeStats}
+                userName={userSettings.displayName}
+                language={language}
+                timeFormat={userSettings.timeFormat}
+                categories={categories}
+                onOpenBook={openBookDetails}
+                onAddBook={() => setShowAdd(true)}
+                onImportBackup={importBackupJson}
+                onExportBackup={exportBackupJson}
+                onGoLibrary={() => goLibrary({ status: 'all', type: 'all', rating: 'all', flag: 'all' })}
+              />
+            </>
           ) : (
             <>
               <nav className="tabs">
@@ -2879,13 +3253,6 @@ function App() {
                   <Map size={18} /> {t('knowledgeMap')} <span>{t('comingSoon')}</span>
                 </button>
               </nav>
-              {soonMessage && (
-                <div className="soonNotice">
-                  <span>{soonMessage}</span>
-                  <button type="button" onClick={() => setSoonMessage('')}><X size={15} /></button>
-                </div>
-              )}
-
               <section className="summaryGrid">
                 <div><strong>{filteredBooks.length}</strong><span>{t('books')}</span></div>
               </section>

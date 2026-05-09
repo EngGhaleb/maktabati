@@ -722,6 +722,46 @@ p {
   grid-template-columns: minmax(0, 1fr);
 }
 
+.appMainLayout {
+  grid-template-columns: 218px minmax(0, 1fr) 320px;
+}
+
+.appMainLayout.noDetailsLayout {
+  grid-template-columns: 218px minmax(0, 1fr);
+}
+
+.sideNavigation {
+  position: sticky;
+  top: 92px;
+  align-self: start;
+  display: grid;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 10px;
+  box-shadow: var(--shadow);
+}
+
+.sideNavigation button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  padding: 10px 11px;
+  text-align: start;
+}
+
+.sideNavigation button:hover,
+.sideNavigation button.active {
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  color: var(--accent);
+}
+
 .mainColumn {
   min-width: 0;
 }
@@ -787,6 +827,10 @@ p {
   color: var(--muted);
 }
 
+.globalNotice {
+  margin: 12px clamp(16px, 4vw, 40px) 0;
+}
+
 .summaryGrid {
   display: grid;
   grid-template-columns: minmax(180px, 260px);
@@ -814,6 +858,206 @@ p {
 .hint,
 .notice {
   color: var(--muted);
+}
+
+.homeDashboard {
+  display: grid;
+  gap: 18px;
+}
+
+.homeHero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, var(--surface)), var(--surface)),
+    var(--surface);
+  padding: clamp(18px, 4vw, 30px);
+  box-shadow: var(--shadow);
+}
+
+.homeHero h2 {
+  margin: 6px 0 8px;
+  font-size: clamp(1.8rem, 4vw, 2.8rem);
+  line-height: 1.25;
+}
+
+.homeHero p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 1.05rem;
+}
+
+.eyebrow {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.homeHeroMark {
+  display: grid;
+  place-items: center;
+  width: 84px;
+  height: 84px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.homeStatsGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.homeStatCard,
+.homeSection {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.homeStatCard {
+  display: grid;
+  gap: 5px;
+  padding: 16px;
+}
+
+.homeStatCard strong {
+  color: var(--accent);
+  font-size: 1.75rem;
+}
+
+.homeStatCard span {
+  color: var(--muted);
+}
+
+.homeSection {
+  padding: 16px;
+}
+
+.homeSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.homeSectionHeader h3 {
+  margin: 0;
+}
+
+.readingNowGrid,
+.recentBooksGrid {
+  display: grid;
+  gap: 12px;
+}
+
+.readingNowGrid {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.readingNowCard,
+.recentBookItem {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 12px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--pill-bg);
+  color: var(--text);
+  padding: 10px;
+  text-align: start;
+}
+
+.readingNowCard:hover,
+.recentBookItem:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  box-shadow: var(--hover-shadow);
+}
+
+.readingNowCard h4,
+.recentBookItem strong {
+  display: block;
+  margin: 0 0 4px;
+  line-height: 1.35;
+}
+
+.readingNowCard p,
+.recentBookItem span {
+  display: block;
+  margin: 0;
+  color: var(--muted);
+}
+
+.homeBookMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.homeBookMeta span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.miniCover {
+  min-height: 122px;
+}
+
+.miniCover.compact {
+  min-height: 94px;
+}
+
+.miniCover img,
+.miniCover .coverPlaceholder {
+  width: 100%;
+  height: 100%;
+  min-height: inherit;
+}
+
+.recentBooksGrid {
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+
+.homeEmptyState {
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  margin: 0;
+  padding: 16px;
+  color: var(--muted);
+  background: var(--pill-bg);
+}
+
+.homeQuickActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 14px;
+}
+
+.quickActionUpload {
+  position: relative;
+  overflow: hidden;
+}
+
+.quickActionUpload input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
 }
 
 .toolbar {
@@ -946,6 +1190,32 @@ label textarea,
 .filters select {
   width: auto;
   min-width: 150px;
+}
+
+.statusTabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin: 14px 0;
+}
+
+.statusTabs button {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  padding: 0 15px;
+  cursor: pointer;
+}
+
+.statusTabs button.active {
+  background: var(--soft);
+  color: var(--accent);
+  border-color: rgba(47, 107, 95, 0.38);
+  font-weight: 800;
 }
 
 .smartShelfCompact {
@@ -1443,6 +1713,213 @@ label textarea,
   border-top: 1px solid var(--line);
   padding-top: 13px;
   margin-top: 13px;
+}
+
+.bookProfileTopbar h2 {
+  margin: 0;
+}
+
+.detailsPanel .bookProfileHero,
+.detailsPanel .quickFacts,
+.detailsPanel .bookProfileTab {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.bookProfileHero {
+  display: grid;
+  grid-template-columns: minmax(145px, 220px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  background: color-mix(in srgb, var(--surface-2) 34%, var(--surface));
+}
+
+.bookDetailsPage .bookProfileHero .detailCover,
+.bookProfileHero .profileCover {
+  height: auto;
+  min-height: 245px;
+  margin: 0;
+}
+
+.profileCover img,
+.profileCover .coverPlaceholder {
+  width: 100%;
+  height: 100%;
+}
+
+.bookProfileIdentity {
+  display: grid;
+  align-content: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.bookProfileIdentity h3 {
+  font-size: 1.55rem;
+  line-height: 1.35;
+  margin: 0;
+}
+
+.bookProfileIdentity .muted {
+  margin: 0;
+  color: var(--muted);
+}
+
+.statusBadge {
+  width: max-content;
+  max-width: 100%;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--line));
+  border-radius: 999px;
+  padding: 5px 11px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  color: var(--accent);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.status-completed {
+  border-color: color-mix(in srgb, var(--accent-2) 45%, var(--line));
+  background: color-mix(in srgb, var(--accent-2) 12%, var(--surface));
+  color: var(--accent-2);
+}
+
+.profileCategories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.profileCategories span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: var(--pill-bg);
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.profileActions {
+  display: flex;
+  margin: 9px 0 0;
+}
+
+.quickFacts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 10px;
+}
+
+.quickFact {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 11px 12px;
+  background: var(--surface);
+}
+
+.quickFact span {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.quickFact strong {
+  overflow-wrap: anywhere;
+}
+
+.detailsTabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--line);
+  margin-top: 16px;
+  padding-bottom: 8px;
+}
+
+.detailsTabs button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 13px;
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.detailsTabs button.active {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.bookProfileTab {
+  margin-top: 12px;
+}
+
+.bookProfileList {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.5fr) minmax(0, 1fr);
+  gap: 9px 14px;
+  margin: 0;
+}
+
+.bookProfileList dt {
+  color: var(--muted);
+}
+
+.bookProfileList dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.bookProfileTextBlocks {
+  display: grid;
+  gap: 12px;
+}
+
+.bookProfileTextBlocks section {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin: 0;
+  padding: 12px;
+  background: var(--surface);
+}
+
+.bookProfileTextBlocks h4 {
+  margin: 0 0 7px;
+}
+
+.bookProfileTextBlocks p {
+  margin: 0;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+.bookProfileTextBlocks blockquote {
+  margin: 0;
+  border-inline-start: 3px solid var(--accent);
+  padding-inline-start: 10px;
+  color: var(--text);
+}
+
+.emptyMiniState {
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  margin: 0;
+  padding: 14px;
+  background: color-mix(in srgb, var(--surface-2) 24%, var(--surface));
+  color: var(--muted);
+}
+
+.profileInlineControl {
+  display: grid;
+  gap: 6px;
+  max-width: 260px;
+  color: var(--muted);
 }
 
 .chips {
@@ -2196,6 +2673,22 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .layout.appMainLayout,
+  .layout.appMainLayout.noDetailsLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .sideNavigation {
+    position: static;
+    display: flex;
+    overflow-x: auto;
+  }
+
+  .sideNavigation button {
+    flex: 0 0 auto;
+    width: auto;
+  }
+
   .detailsPanel {
     position: static;
     max-height: none;
@@ -2230,6 +2723,7 @@ textarea {
   }
 
   .summaryGrid,
+  .homeStatsGrid,
   .placeholderRow,
   .importStats,
   .profileStats,
@@ -2308,5 +2802,50 @@ textarea {
 
   .bookCardBottom {
     flex-wrap: wrap;
+  }
+
+  .homeHero {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .homeQuickActions .primaryButton,
+  .homeQuickActions .secondaryButton {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .bookProfileHero {
+    grid-template-columns: 1fr;
+    padding: 12px;
+  }
+
+  .bookDetailsPage .bookProfileHero .detailCover,
+  .bookProfileHero .profileCover {
+    min-height: 215px;
+  }
+
+  .profileActions .primaryButton,
+  .profileActions .secondaryButton {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+
+  .detailsTabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 10px;
+  }
+
+  .detailsTabs button {
+    flex: 0 0 auto;
+  }
+
+  .bookProfileList {
+    grid-template-columns: 1fr;
+  }
+
+  .bookProfileList dt {
+    margin-top: 6px;
   }
 }
