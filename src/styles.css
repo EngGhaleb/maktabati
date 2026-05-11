@@ -1060,50 +1060,100 @@ p {
   cursor: pointer;
 }
 
-.aiCompanionPage {
-  display: grid;
-  gap: 16px;
-}
-
-.aiHero {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 10%, var(--surface)), var(--surface));
-  padding: clamp(18px, 4vw, 30px);
-  box-shadow: var(--shadow);
-}
-
-.aiHero .eyebrow {
+.companionHeaderButton {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--accent);
+  min-height: 42px;
+  padding: 0 16px;
+  font-weight: 800;
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--accent) 9%, transparent);
 }
 
-.aiHero h2 {
-  margin: 7px 0 8px;
-  font-size: clamp(1.8rem, 4vw, 2.7rem);
+.companionHeaderButton:hover {
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+  transform: translateY(-1px);
 }
 
-.aiHero p {
+.companionOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+}
+
+.companionOverlay.open {
+  pointer-events: auto;
+}
+
+.companionBackdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: var(--overlay);
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.companionOverlay.open .companionBackdrop {
+  opacity: 1;
+}
+
+.companionDrawer {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: min(420px, 100vw);
+  display: grid;
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
+  gap: 12px;
+  background: var(--surface);
+  border-inline-end: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  padding: 18px;
+  transform: translateX(-104%);
+  transition: transform 220ms ease;
+  overflow: hidden;
+}
+
+[dir="rtl"] .companionDrawer {
+  transform: translateX(-104%);
+}
+
+.companionOverlay.open .companionDrawer {
+  transform: translateX(0);
+}
+
+.companionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.companionHeader h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 5px;
+}
+
+.companionHeader p {
   margin: 0;
   color: var(--muted);
+  line-height: 1.6;
 }
 
-.aiHeroBadge {
-  display: grid;
-  place-items: center;
-  gap: 8px;
-  min-width: 118px;
-  border: 1px solid var(--line);
+.companionContext {
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
   border-radius: 8px;
-  background: var(--surface);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
   color: var(--accent);
-  padding: 18px;
-  text-align: center;
+  padding: 10px 12px;
   font-weight: 700;
 }
 
@@ -1131,6 +1181,37 @@ p {
   border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
   color: var(--accent);
   font-weight: 700;
+}
+
+.sourceModeSelector.compact {
+  padding: 6px;
+  gap: 6px;
+}
+
+.sourceModeSelector.compact button {
+  flex-basis: auto;
+  padding: 8px 9px;
+  font-size: 0.9rem;
+}
+
+.quickPromptChips {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.quickPromptChips button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--pill-bg);
+  color: var(--text);
+  padding: 7px 10px;
+  font-size: 0.9rem;
+}
+
+.quickPromptChips button:hover {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+  color: var(--accent);
 }
 
 .quickPromptGrid {
@@ -1171,6 +1252,11 @@ p {
   border-radius: 8px;
   background: var(--surface);
   padding: 14px;
+}
+
+.drawerChatPanel {
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr) auto auto;
 }
 
 .aiMessages {
@@ -2981,17 +3067,18 @@ textarea {
     flex-direction: column;
   }
 
-  .aiHero {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .aiHeroBadge {
-    width: 100%;
-  }
-
   .aiInputBar {
     grid-template-columns: 1fr;
+  }
+
+  .companionHeaderButton {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .companionDrawer {
+    width: 100vw;
+    padding: 14px;
   }
 
   .homeQuickActions .primaryButton,

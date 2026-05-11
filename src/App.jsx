@@ -2535,7 +2535,13 @@ function HomeDashboard({
   );
 }
 
-function buildMockAiResponse(mode, stats, t) {
+function buildMockAiResponse(mode, stats, t, contextBook = null) {
+  if (contextBook) {
+    return t('aiBookContextMockResponse', {
+      title: contextBook.title,
+      author: contextBook.author || t('unknownAuthor')
+    });
+  }
   if (mode === 'library') {
     return t('aiLibraryMockResponse', {
       total: stats.total,
@@ -2553,7 +2559,7 @@ function buildMockAiResponse(mode, stats, t) {
   return t('aiGeneralMockResponse');
 }
 
-function ReadingCompanionPage({ books, stats }) {
+function ReadingCompanionDrawer({ open, onClose, stats, contextBook = null }) {
   const { t } = useTranslation();
   const [sourceMode, setSourceMode] = useState('general');
   const [input, setInput] = useState('');
@@ -2564,13 +2570,21 @@ function ReadingCompanionPage({ books, stats }) {
       text: t('aiWelcomeMessage')
     }
   ]);
-  const quickPrompts = [
-    ['summarizeBookPrompt', 'summarizeBookSample'],
-    ['recommendReadingPrompt', 'recommendReadingSample'],
-    ['compareBooksPrompt', 'compareBooksSample'],
-    ['readingPlanPrompt', 'readingPlanSample'],
-    ['askMyLibraryPrompt', 'askMyLibrarySample']
-  ];
+  const quickPrompts = contextBook
+    ? [
+        ['summarizeThisBookPrompt', 'summarizeThisBookSample'],
+        ['mainIdeaPrompt', 'mainIdeaSample'],
+        ['beginnerFitPrompt', 'beginnerFitSample'],
+        ['compareBooksPrompt', 'compareBooksSample'],
+        ['readingPlanPrompt', 'readingPlanSample']
+      ]
+    : [
+        ['summarizeBookPrompt', 'summarizeBookSample'],
+        ['recommendReadingPrompt', 'recommendReadingSample'],
+        ['askMyLibraryPrompt', 'askMyLibrarySample'],
+        ['readingPlanPrompt', 'readingPlanSample'],
+        ['compareBooksPrompt', 'compareBooksSample']
+      ];
 
   function sendMessage(event) {
     event?.preventDefault();
@@ -2580,67 +2594,71 @@ function ReadingCompanionPage({ books, stats }) {
     const assistantMessage = {
       id: crypto.randomUUID(),
       role: 'assistant',
-      text: buildMockAiResponse(sourceMode, stats, t)
+      text: buildMockAiResponse(sourceMode, stats, t, contextBook)
     };
     setMessages((current) => [...current, userMessage, assistantMessage]);
     setInput('');
   }
 
   return (
-    <section className="aiCompanionPage">
-      <header className="aiHero">
-        <div>
-          <span className="eyebrow"><Sparkles size={16} /> {t('readingCompanion')}</span>
-          <h2>{t('readingCompanion')}</h2>
-          <p>{t('readingCompanionSubtitle')}</p>
-        </div>
-        <div className="aiHeroBadge">
-          <MessageCircle size={34} />
-          <span>{t('mockAiBadge')}</span>
-        </div>
-      </header>
+    <div className={`companionOverlay ${open ? 'open' : ''}`}>
+      <button className="companionBackdrop" type="button" onClick={onClose} aria-label={t('cancel')} />
+      <aside className="companionDrawer" role="dialog" aria-modal="true" aria-labelledby="reading-companion-title">
+        <header className="companionHeader">
+          <div>
+            <h2 id="reading-companion-title"><Sparkles size={18} /> {t('readingCompanion')}</h2>
+            <p>{t('readingCompanionDrawerSubtitle')}</p>
+          </div>
+          <button className="iconButton" type="button" onClick={onClose} title={t('cancel')}><X size={19} /></button>
+        </header>
 
-      <div className="sourceModeSelector" role="group" aria-label={t('aiSourceMode')}>
-        {[
-          ['general', 'aiModeGeneral'],
-          ['library', 'aiModeLibrary'],
-          ['hybrid', 'aiModeHybrid']
-        ].map(([id, labelKey]) => (
-          <button key={id} type="button" className={sourceMode === id ? 'active' : ''} onClick={() => setSourceMode(id)}>
-            {t(labelKey)}
-          </button>
-        ))}
-      </div>
+        {contextBook && (
+          <div className="companionContext">
+            {t('aiCurrentBookContext', { title: contextBook.title })}
+          </div>
+        )}
 
-      <section className="quickPromptGrid" aria-label={t('quickPrompts')}>
-        {quickPrompts.map(([labelKey, sampleKey]) => (
-          <button key={labelKey} type="button" onClick={() => setInput(t(sampleKey))}>
-            <span>{t(labelKey)}</span>
-            <small>{t(sampleKey)}</small>
-          </button>
-        ))}
-      </section>
-
-      <section className="aiChatPanel">
-        <div className="aiMessages" aria-live="polite">
-          {messages.map((message) => (
-            <div key={message.id} className={`aiMessage ${message.role === 'user' ? 'userMessage' : 'assistantMessage'}`}>
-              <span>{message.role === 'user' ? t('you') : t('readingCompanion')}</span>
-              <p>{message.text}</p>
-            </div>
+        <div className="sourceModeSelector compact" role="group" aria-label={t('aiSourceMode')}>
+          {[
+            ['general', 'aiModeGeneral'],
+            ['library', 'aiModeLibrary'],
+            ['hybrid', 'aiModeHybrid']
+          ].map(([id, labelKey]) => (
+            <button key={id} type="button" className={sourceMode === id ? 'active' : ''} onClick={() => setSourceMode(id)}>
+              {t(labelKey)}
+            </button>
           ))}
         </div>
-        <form className="aiInputBar" onSubmit={sendMessage}>
-          <input
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            placeholder={t('aiInputPlaceholder')}
-          />
-          <button className="primaryButton" type="submit"><Send size={17} /> {t('send')}</button>
-        </form>
-        <p className="aiSafetyNote">{t('aiSafetyNote')}</p>
-      </section>
-    </section>
+
+        <section className="quickPromptChips" aria-label={t('quickPrompts')}>
+          {quickPrompts.map(([labelKey, sampleKey]) => (
+            <button key={labelKey} type="button" onClick={() => setInput(t(sampleKey, { title: contextBook?.title || '' }))}>
+              {t(labelKey)}
+            </button>
+          ))}
+        </section>
+
+        <section className="aiChatPanel drawerChatPanel">
+          <div className="aiMessages" aria-live="polite">
+            {messages.map((message) => (
+              <div key={message.id} className={`aiMessage ${message.role === 'user' ? 'userMessage' : 'assistantMessage'}`}>
+                <span>{message.role === 'user' ? t('you') : t('readingCompanion')}</span>
+                <p>{message.text}</p>
+              </div>
+            ))}
+          </div>
+          <form className="aiInputBar" onSubmit={sendMessage}>
+            <input
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              placeholder={t('aiInputPlaceholder')}
+            />
+            <button className="primaryButton" type="submit"><Send size={17} /> {t('send')}</button>
+          </form>
+          <p className="aiSafetyNote">{t('aiSafetyNote')}</p>
+        </section>
+      </aside>
+    </div>
   );
 }
 
@@ -2691,6 +2709,7 @@ function App() {
   const [showProfile, setShowProfile] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAccountMenu, setShowAccountMenu] = useState(false);
+  const [showCompanion, setShowCompanion] = useState(false);
   const [showSmartShelves, setShowSmartShelves] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [soonMessage, setSoonMessage] = useState('');
@@ -3202,6 +3221,9 @@ function App() {
             <p>{t('tagline')}</p>
           </div>
         </button>
+        <button className="companionHeaderButton" type="button" onClick={() => setShowCompanion(true)}>
+          <Sparkles size={17} /> {t('askReadingCompanion')}
+        </button>
         <div className="topActions">
           <div className="accountMenu" ref={accountMenuRef}>
             <button
@@ -3286,7 +3308,6 @@ function App() {
           {[
             ['home', Home, 'home', () => goHome()],
             ['library', BookOpen, 'myLibrary', () => goLibrary({ status: 'all', type: 'all', rating: 'all', flag: 'all' })],
-            ['ai', MessageCircle, 'readingCompanion', () => { setActivePage('ai'); setSelectedBookId(null); setEditingBookId(null); }],
             ['reading', Clock3, 'readingNow', () => goLibrary({ status: 'reading', type: 'all', rating: 'all', flag: 'all' })],
             ['favorites', Heart, 'favorites', () => setSoonMessage(t('favoritesSoonMessage'))],
             ['categories', FolderTree, 'categoriesNav', () => setSoonMessage(t('categoriesSoonMessage'))],
@@ -3298,7 +3319,7 @@ function App() {
             <button
               key={id}
               type="button"
-              className={(id === 'home' && activePage === 'home') || (id === 'library' && activePage === 'library') || (id === 'ai' && activePage === 'ai') ? 'active' : ''}
+              className={(id === 'home' && activePage === 'home') || (id === 'library' && activePage === 'library') ? 'active' : ''}
               onClick={action}
             >
               <Icon size={17} /> {t(labelKey)}
@@ -3341,8 +3362,6 @@ function App() {
                 onGoLibrary={() => goLibrary({ status: 'all', type: 'all', rating: 'all', flag: 'all' })}
               />
             </>
-          ) : activePage === 'ai' ? (
-            <ReadingCompanionPage books={books} stats={homeStats} />
           ) : (
             <>
               <nav className="tabs">
@@ -3543,6 +3562,12 @@ function App() {
           onImport={importBooks}
         />
       )}
+      <ReadingCompanionDrawer
+        open={showCompanion}
+        onClose={() => setShowCompanion(false)}
+        stats={homeStats}
+        contextBook={activePage === 'details' ? selectedBook : null}
+      />
     </div>
   );
 }
