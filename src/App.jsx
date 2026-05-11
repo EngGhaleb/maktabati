@@ -20,10 +20,13 @@ import {
   Images,
   ListChecks,
   Map,
+  MessageCircle,
   Moon,
   Plus,
   Search,
+  Send,
   Settings,
+  Sparkles,
   Star,
   StickyNote,
   Sun,
@@ -2532,6 +2535,115 @@ function HomeDashboard({
   );
 }
 
+function buildMockAiResponse(mode, stats, t) {
+  if (mode === 'library') {
+    return t('aiLibraryMockResponse', {
+      total: stats.total,
+      reading: stats.reading,
+      completed: stats.completed
+    });
+  }
+  if (mode === 'hybrid') {
+    return t('aiHybridMockResponse', {
+      total: stats.total,
+      reading: stats.reading,
+      completed: stats.completed
+    });
+  }
+  return t('aiGeneralMockResponse');
+}
+
+function ReadingCompanionPage({ books, stats }) {
+  const { t } = useTranslation();
+  const [sourceMode, setSourceMode] = useState('general');
+  const [input, setInput] = useState('');
+  const [messages, setMessages] = useState([
+    {
+      id: 'welcome',
+      role: 'assistant',
+      text: t('aiWelcomeMessage')
+    }
+  ]);
+  const quickPrompts = [
+    ['summarizeBookPrompt', 'summarizeBookSample'],
+    ['recommendReadingPrompt', 'recommendReadingSample'],
+    ['compareBooksPrompt', 'compareBooksSample'],
+    ['readingPlanPrompt', 'readingPlanSample'],
+    ['askMyLibraryPrompt', 'askMyLibrarySample']
+  ];
+
+  function sendMessage(event) {
+    event?.preventDefault();
+    const text = input.trim();
+    if (!text) return;
+    const userMessage = { id: crypto.randomUUID(), role: 'user', text };
+    const assistantMessage = {
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      text: buildMockAiResponse(sourceMode, stats, t)
+    };
+    setMessages((current) => [...current, userMessage, assistantMessage]);
+    setInput('');
+  }
+
+  return (
+    <section className="aiCompanionPage">
+      <header className="aiHero">
+        <div>
+          <span className="eyebrow"><Sparkles size={16} /> {t('readingCompanion')}</span>
+          <h2>{t('readingCompanion')}</h2>
+          <p>{t('readingCompanionSubtitle')}</p>
+        </div>
+        <div className="aiHeroBadge">
+          <MessageCircle size={34} />
+          <span>{t('mockAiBadge')}</span>
+        </div>
+      </header>
+
+      <div className="sourceModeSelector" role="group" aria-label={t('aiSourceMode')}>
+        {[
+          ['general', 'aiModeGeneral'],
+          ['library', 'aiModeLibrary'],
+          ['hybrid', 'aiModeHybrid']
+        ].map(([id, labelKey]) => (
+          <button key={id} type="button" className={sourceMode === id ? 'active' : ''} onClick={() => setSourceMode(id)}>
+            {t(labelKey)}
+          </button>
+        ))}
+      </div>
+
+      <section className="quickPromptGrid" aria-label={t('quickPrompts')}>
+        {quickPrompts.map(([labelKey, sampleKey]) => (
+          <button key={labelKey} type="button" onClick={() => setInput(t(sampleKey))}>
+            <span>{t(labelKey)}</span>
+            <small>{t(sampleKey)}</small>
+          </button>
+        ))}
+      </section>
+
+      <section className="aiChatPanel">
+        <div className="aiMessages" aria-live="polite">
+          {messages.map((message) => (
+            <div key={message.id} className={`aiMessage ${message.role === 'user' ? 'userMessage' : 'assistantMessage'}`}>
+              <span>{message.role === 'user' ? t('you') : t('readingCompanion')}</span>
+              <p>{message.text}</p>
+            </div>
+          ))}
+        </div>
+        <form className="aiInputBar" onSubmit={sendMessage}>
+          <input
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            placeholder={t('aiInputPlaceholder')}
+          />
+          <button className="primaryButton" type="submit"><Send size={17} /> {t('send')}</button>
+        </form>
+        <p className="aiSafetyNote">{t('aiSafetyNote')}</p>
+      </section>
+    </section>
+  );
+}
+
 function App() {
   const { t, i18n } = useTranslation();
   const accountMenuRef = useRef(null);
@@ -3174,6 +3286,7 @@ function App() {
           {[
             ['home', Home, 'home', () => goHome()],
             ['library', BookOpen, 'myLibrary', () => goLibrary({ status: 'all', type: 'all', rating: 'all', flag: 'all' })],
+            ['ai', MessageCircle, 'readingCompanion', () => { setActivePage('ai'); setSelectedBookId(null); setEditingBookId(null); }],
             ['reading', Clock3, 'readingNow', () => goLibrary({ status: 'reading', type: 'all', rating: 'all', flag: 'all' })],
             ['favorites', Heart, 'favorites', () => setSoonMessage(t('favoritesSoonMessage'))],
             ['categories', FolderTree, 'categoriesNav', () => setSoonMessage(t('categoriesSoonMessage'))],
@@ -3185,7 +3298,7 @@ function App() {
             <button
               key={id}
               type="button"
-              className={(id === 'home' && activePage === 'home') || (id === 'library' && activePage === 'library') ? 'active' : ''}
+              className={(id === 'home' && activePage === 'home') || (id === 'library' && activePage === 'library') || (id === 'ai' && activePage === 'ai') ? 'active' : ''}
               onClick={action}
             >
               <Icon size={17} /> {t(labelKey)}
@@ -3228,6 +3341,8 @@ function App() {
                 onGoLibrary={() => goLibrary({ status: 'all', type: 'all', rating: 'all', flag: 'all' })}
               />
             </>
+          ) : activePage === 'ai' ? (
+            <ReadingCompanionPage books={books} stats={homeStats} />
           ) : (
             <>
               <nav className="tabs">
